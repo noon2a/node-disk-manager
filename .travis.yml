@@ -57,5 +57,5 @@ script:
   - kubectl describe pod
 
 after_success:
-  - DIMAGE=openebs/node-disk-manager-$ARCH ./hack/push;
+  - DIMAGE=akhilerm/node-disk-manager-$ARCH ./hack/push;
   - bash <(curl -s https://codecov.io/bash)
