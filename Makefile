@@ -16,7 +16,7 @@ ARCH:=${XC_OS}_${XC_ARCH}
 VERSION:=$(shell git describe --tags --always)
 
 # IMAGE is the image name of the node-disk-manager docker image.
-IMAGE:=openebs/node-disk-manager-${XC_ARCH}:ci
+IMAGE:=akhilerm/node-disk-manager-${XC_ARCH}:ci
 
 # The ubuntu:16.04 image is being used as base image.
 BASEIMAGE:=ubuntu:16.04
@@ -88,6 +88,7 @@ docker: Dockerfile
 	@echo "--> Building docker image..."
 	@sudo docker build -t "$(IMAGE)" --build-arg ARCH=${ARCH} .
 	@echo "--> Build docker image: $(IMAGE)"
+	docker run --entrypoint "/bin/ls" $(IMAGE) -l /usr/local/bin
 	@echo
 
 
