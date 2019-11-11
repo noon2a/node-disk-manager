@@ -98,6 +98,7 @@ then
   VERSION="${TRAVIS_TAG}"
 fi;
 
+echo "VERSION : " $VERSION
 
 # Determine the arch/os combos we're building for
 #XC_ARCH=${XC_ARCH:-"amd64"}
