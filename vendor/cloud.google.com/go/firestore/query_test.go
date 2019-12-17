@@ -144,9 +144,19 @@ func TestQueryToProto(t *testing.T) {
 			want: &pb.StructuredQuery{Where: filtr([]string{"a"}, "==", math.NaN())},
 		},
 		{
+			desc: `q.Where("a", "in", []int{7, 8})`,
+			in:   q.Where("a", "in", []int{7, 8}),
+			want: &pb.StructuredQuery{Where: filtr([]string{"a"}, "in", []int{7, 8})},
+		},
+		{
 			desc: `q.Where("c", "array-contains", 1)`,
 			in:   q.Where("c", "array-contains", 1),
 			want: &pb.StructuredQuery{Where: filtr([]string{"c"}, "array-contains", 1)},
+		},
+		{
+			desc: `q.Where("c", "array-contains-any", []int{1, 2})`,
+			in:   q.Where("c", "array-contains-any", []int{1, 2}),
+			want: &pb.StructuredQuery{Where: filtr([]string{"c"}, "array-contains-any", []int{1, 2})},
 		},
 		{
 			desc: `q.Where("a", ">", 5).Where("b", "<", "foo")`,
@@ -565,7 +575,9 @@ func TestQueryGetAll(t *testing.T) {
 	// This implicitly tests DocumentIterator as well.
 	const dbPath = "projects/projectID/databases/(default)"
 	ctx := context.Background()
-	c, srv := newMock(t)
+	c, srv, cleanup := newMock(t)
+	defer cleanup()
+
 	docNames := []string{"C/a", "C/b"}
 	wantPBDocs := []*pb.Document{
 		{

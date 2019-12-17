@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 
-source hack/lib/test_lib.sh
-
 set -eux
+
+source hack/lib/test_lib.sh
+source hack/lib/image_lib.sh
 
 DEST_IMAGE="quay.io/example/nginx-operator:v0.0.2"
 ROOTDIR="$(pwd)"
-GOTMP="$(mktemp -d -p $GOPATH/src)"
-trap_add 'rm -rf $GOTMP' EXIT
+TMPDIR="$(mktemp -d)"
+trap_add 'rm -rf $TMPDIR' EXIT
 
 deploy_operator() {
     kubectl create -f "$OPERATORDIR/deploy/service_account.yaml"
     kubectl create -f "$OPERATORDIR/deploy/role.yaml"
     kubectl create -f "$OPERATORDIR/deploy/role_binding.yaml"
-    kubectl create -f "$OPERATORDIR/deploy/crds/helm_v1alpha1_nginx_crd.yaml"
+    kubectl create -f "$OPERATORDIR/deploy/crds/helm.example.com_nginxes_crd.yaml"
     kubectl create -f "$OPERATORDIR/deploy/operator.yaml"
 }
 
@@ -21,11 +22,15 @@ remove_operator() {
     kubectl delete --ignore-not-found=true -f "$OPERATORDIR/deploy/service_account.yaml"
     kubectl delete --ignore-not-found=true -f "$OPERATORDIR/deploy/role.yaml"
     kubectl delete --ignore-not-found=true -f "$OPERATORDIR/deploy/role_binding.yaml"
-    kubectl delete --ignore-not-found=true -f "$OPERATORDIR/deploy/crds/helm_v1alpha1_nginx_crd.yaml"
+    kubectl delete --ignore-not-found=true -f "$OPERATORDIR/deploy/crds/helm.example.com_nginxes_crd.yaml"
     kubectl delete --ignore-not-found=true -f "$OPERATORDIR/deploy/operator.yaml"
 }
 
 test_operator() {
+    # kind has an issue with certain image registries (ex. redhat's), so use a
+    # different test pod image.
+    local metrics_test_image="fedora:latest"
+
     # wait for operator pod to run
     if ! timeout 1m kubectl rollout status deployment/nginx-operator;
     then
@@ -33,16 +38,40 @@ test_operator() {
         exit 1
     fi
 
+    # verify that metrics service was created
+    if ! timeout 20s bash -c -- "until kubectl get service/nginx-operator-metrics > /dev/null 2>&1; do sleep 1; done";
+    then
+        echo "Failed to get metrics service"
+        kubectl logs deployment/nginx-operator
+        exit 1
+    fi
+
+    # verify that the metrics endpoint exists
+    if ! timeout 1m bash -c -- "until kubectl run --attach --rm --restart=Never test-metrics --image=$metrics_test_image -- curl -sfo /dev/null http://nginx-operator-metrics:8383/metrics; do sleep 1; done";
+    then
+        echo "Failed to verify that metrics endpoint exists"
+        kubectl logs deployment/nginx-operator
+        exit 1
+    fi
+
     # create CR
-    kubectl create -f deploy/crds/helm_v1alpha1_nginx_cr.yaml
-    trap_add 'kubectl delete --ignore-not-found -f ${OPERATORDIR}/deploy/crds/helm_v1alpha1_nginx_cr.yaml' EXIT
-    if ! timeout 1m bash -c -- 'until kubectl get nginxes.helm.example.com example-nginx -o jsonpath="{..status.conditions[1].release.info.status.code}" | grep 1; do sleep 1; done';
+    kubectl create -f deploy/crds/helm.example.com_v1alpha1_nginx_cr.yaml
+    trap_add 'kubectl delete --ignore-not-found -f ${OPERATORDIR}/deploy/crds/helm.example.com_v1alpha1_nginx_cr.yaml' EXIT
+    if ! timeout 1m bash -c -- 'until kubectl get nginxes.helm.example.com example-nginx -o jsonpath="{..status.deployedRelease.name}" | grep "example-nginx"; do sleep 1; done';
     then
         kubectl logs deployment/nginx-operator
         exit 1
     fi
 
-    release_name=$(kubectl get nginxes.helm.example.com example-nginx -o jsonpath="{..status.conditions[1].release.name}")
+    # verify that the custom resource metrics endpoint exists
+    if ! timeout 1m bash -c -- "until kubectl run --attach --rm --restart=Never test-cr-metrics --image=$metrics_test_image -- curl -sfo /dev/null http://nginx-operator-metrics:8686/metrics; do sleep 1; done";
+    then
+        echo "Failed to verify that custom resource metrics endpoint exists"
+        kubectl logs deployment/nginx-operator
+        exit 1
+    fi
+
+    release_name=$(kubectl get nginxes.helm.example.com example-nginx -o jsonpath="{..status.deployedRelease.name}")
     nginx_deployment=$(kubectl get deployment -l "app.kubernetes.io/instance=${release_name}" -o jsonpath="{..metadata.name}")
 
     if ! timeout 1m kubectl rollout status deployment/${nginx_deployment};
@@ -78,29 +107,36 @@ test_operator() {
         exit 1
     fi
 
-    kubectl delete -f deploy/crds/helm_v1alpha1_nginx_cr.yaml --wait=true
+    kubectl delete -f deploy/crds/helm.example.com_v1alpha1_nginx_cr.yaml --wait=true
     kubectl logs deployment/nginx-operator | grep "Uninstalled release" | grep "${release_name}"
 }
 
-# if on openshift switch to the "default" namespace
-# and allow containers to run as root (necessary for
-# default nginx image)
-if which oc 2>/dev/null;
-then
-    oc project default
-    oc adm policy add-scc-to-user anyuid -z default
-fi
-
-
 # create and build the operator
-pushd "$GOTMP"
-operator-sdk new nginx-operator --api-version=helm.example.com/v1alpha1 --kind=Nginx --type=helm
+pushd "$TMPDIR"
+log=$(operator-sdk new nginx-operator \
+  --api-version=helm.example.com/v1alpha1 \
+  --kind=Nginx \
+  --type=helm \
+  2>&1)
+echo $log
+if echo $log | grep -q "failed to generate RBAC rules"; then
+    echo FAIL expected successful generation of RBAC rules
+    exit 1
+fi
 
 pushd nginx-operator
 sed -i 's|\(FROM quay.io/operator-framework/helm-operator\)\(:.*\)\?|\1:dev|g' build/Dockerfile
 operator-sdk build "$DEST_IMAGE"
+# If using a kind cluster, load the image into all nodes.
+load_image_if_kind "$DEST_IMAGE"
 sed -i "s|REPLACE_IMAGE|$DEST_IMAGE|g" deploy/operator.yaml
 sed -i 's|Always|Never|g' deploy/operator.yaml
+# kind has an issue with certain image registries (ex. redhat's), so use a
+# different test pod image.
+METRICS_TEST_IMAGE="fedora:latest"
+docker pull "$METRICS_TEST_IMAGE"
+# If using a kind cluster, load the metrics test image into all nodes.
+load_image_if_kind "$METRICS_TEST_IMAGE"
 
 OPERATORDIR="$(pwd)"
 
@@ -114,7 +150,8 @@ echo "### Base image testing passed"
 echo "### Now testing migrate to hybrid operator"
 echo "###"
 
-operator-sdk migrate
+export GO111MODULE=on
+operator-sdk migrate --repo=github.com/example-inc/nginx-operator
 
 if [[ ! -e build/Dockerfile.sdkold ]];
 then
@@ -122,17 +159,13 @@ then
     exit 1
 fi
 
-# We can't reliably run `dep ensure` because when there are changes to
-# operator-sdk itself, and those changes are not merged upstream, we hit this
-# bug: https://github.com/golang/dep/issues/1747
-# Instead, this re-uses operator-sdk's own vendor directory.
-cp -a "$ROOTDIR"/vendor ./
-mkdir -p vendor/github.com/operator-framework/operator-sdk/
-# We cannot just use operator-sdk from $GOPATH because compilation tries to use
-# its vendor directory, which can conflict with the local one.
-cp -a "$ROOTDIR"/{internal,pkg,version,LICENSE} vendor/github.com/operator-framework/operator-sdk/
+add_go_mod_replace "github.com/operator-framework/operator-sdk" "$ROOTDIR"
+# Build the project to resolve dependency versions in the modfile.
+go build ./...
 
 operator-sdk build "$DEST_IMAGE"
+# If using a kind cluster, load the image into all nodes.
+load_image_if_kind "$DEST_IMAGE"
 
 deploy_operator
 test_operator

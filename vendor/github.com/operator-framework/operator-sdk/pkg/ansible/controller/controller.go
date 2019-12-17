@@ -30,8 +30,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	crthandler "sigs.k8s.io/controller-runtime/pkg/handler"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	logf "sigs.k8s.io/controller-runtime/pkg/runtime/log"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
@@ -47,6 +47,7 @@ type Options struct {
 	ManageStatus                bool
 	WatchDependentResources     bool
 	WatchClusterScopedResources bool
+	MaxWorkers                  int
 }
 
 // Add - Creates a new ansible operator controller and adds it to the manager
@@ -82,7 +83,8 @@ func Add(mgr manager.Manager, options Options) *controller.Controller {
 
 	//Create new controller runtime controller and set the controller to watch GVK.
 	c, err := controller.New(fmt.Sprintf("%v-controller", strings.ToLower(options.GVK.Kind)), mgr, controller.Options{
-		Reconciler: aor,
+		Reconciler:              aor,
+		MaxConcurrentReconciles: options.MaxWorkers,
 	})
 	if err != nil {
 		log.Error(err, "")

@@ -20,10 +20,21 @@
 //   NOTE: This package is in alpha. It is not stable, and is likely to change.
 //
 // Sends application trace data to Stackdriver Trace for viewing. Trace data
-// is
-// collected for all App Engine applications by default. Trace data from
-// other
-// applications can be provided using this API.
+// is collected for all App Engine applications by default. Trace data from
+// other applications can be provided using this API. This library is used to
+// interact with the Trace API directly. If you are looking to instrument
+// your application for Stackdriver Trace, we recommend using OpenCensus.
+//
+// Use of Context
+//
+// The ctx passed to NewClient is used for authentication requests and
+// for creating the underlying connection, but is not used for subsequent calls.
+// Individual methods on the client use the ctx given to them.
+//
+// To close the open connection, use the Close() method.
+//
+// For information about setting deadlines, reusing contexts, and more
+// please visit godoc.org/cloud.google.com/go.
 package trace // import "cloud.google.com/go/trace/apiv2"
 
 import (
@@ -91,4 +102,4 @@ func versionGo() string {
 	return "UNKNOWN"
 }
 
-const versionClient = "20190121"
+const versionClient = "20191115"

@@ -25,18 +25,18 @@ import (
 	"testing"
 	"time"
 
-	"cloud.google.com/go/spanner/internal/testutil"
+	. "cloud.google.com/go/spanner/internal/testutil"
 	sppb "google.golang.org/genproto/googleapis/spanner/v1"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	gstatus "google.golang.org/grpc/status"
 )
 
 // Single can only be used once.
 func TestSingle(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	client, _, mock, cleanup := serverClientMock(t, SessionPoolConfig{})
-	defer cleanup()
+	server, client, teardown := setupMockedTestServer(t)
+	defer teardown()
 
 	txn := client.Single()
 	defer txn.Close()
@@ -50,7 +50,7 @@ func TestSingle(t *testing.T) {
 	}
 
 	// Only one CreateSessionRequest is sent.
-	if err := shouldHaveReceived(mock, []interface{}{&sppb.CreateSessionRequest{}}); err != nil {
+	if _, err := shouldHaveReceived(server.TestSpanner, []interface{}{&sppb.CreateSessionRequest{}}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -59,23 +59,18 @@ func TestSingle(t *testing.T) {
 func TestReadOnlyTransaction_RecoverFromFailure(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	client, _, mock, cleanup := serverClientMock(t, SessionPoolConfig{})
-	defer cleanup()
+	server, client, teardown := setupMockedTestServer(t)
+	defer teardown()
 
 	txn := client.ReadOnlyTransaction()
 	defer txn.Close()
 
-	// First request will fail, which should trigger a retry.
-	errUsr := errors.New("error")
-	firstCall := true
-	mock.BeginTransactionFn = func(c context.Context, r *sppb.BeginTransactionRequest, opts ...grpc.CallOption) (*sppb.Transaction, error) {
-		if firstCall {
-			mock.MockCloudSpannerClient.ReceivedRequests <- r
-			firstCall = false
-			return nil, errUsr
-		}
-		return mock.MockCloudSpannerClient.BeginTransaction(c, r, opts...)
-	}
+	// First request will fail.
+	errUsr := gstatus.Error(codes.Unknown, "error")
+	server.TestSpanner.PutExecutionTime(MethodBeginTransaction,
+		SimulatedExecutionTime{
+			Errors: []error{errUsr},
+		})
 
 	_, _, e := txn.acquire(ctx)
 	if wantErr := toSpannerError(errUsr); !testEqual(e, wantErr) {
@@ -91,8 +86,8 @@ func TestReadOnlyTransaction_RecoverFromFailure(t *testing.T) {
 func TestReadOnlyTransaction_UseAfterClose(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	client, _, _, cleanup := serverClientMock(t, SessionPoolConfig{})
-	defer cleanup()
+	_, client, teardown := setupMockedTestServer(t)
+	defer teardown()
 
 	txn := client.ReadOnlyTransaction()
 	txn.Close()
@@ -107,12 +102,12 @@ func TestReadOnlyTransaction_UseAfterClose(t *testing.T) {
 func TestReadOnlyTransaction_Concurrent(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	client, _, mock, cleanup := serverClientMock(t, SessionPoolConfig{})
-	defer cleanup()
+	server, client, teardown := setupMockedTestServer(t)
+	defer teardown()
 	txn := client.ReadOnlyTransaction()
 	defer txn.Close()
 
-	mock.Freeze()
+	server.TestSpanner.Freeze()
 	var (
 		sh1 *sessionHandle
 		sh2 *sessionHandle
@@ -135,7 +130,7 @@ func TestReadOnlyTransaction_Concurrent(t *testing.T) {
 	// TODO(deklerk): Get rid of this.
 	<-time.After(100 * time.Millisecond)
 
-	mock.Unfreeze()
+	server.TestSpanner.Unfreeze()
 	wg.Wait()
 	if sh1.session.id != sh2.session.id {
 		t.Fatalf("Expected acquire to get same session handle, got %v and %v.", sh1, sh2)
@@ -148,8 +143,8 @@ func TestReadOnlyTransaction_Concurrent(t *testing.T) {
 func TestApply_Single(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	client, _, mock, cleanup := serverClientMock(t, SessionPoolConfig{})
-	defer cleanup()
+	server, client, teardown := setupMockedTestServer(t)
+	defer teardown()
 
 	ms := []*Mutation{
 		Insert("Accounts", []string{"AccountId", "Nickname", "Balance"}, []interface{}{int64(1), "Foo", int64(50)}),
@@ -159,7 +154,7 @@ func TestApply_Single(t *testing.T) {
 		t.Fatalf("applyAtLeastOnce retry on abort, got %v, want nil.", e)
 	}
 
-	if err := shouldHaveReceived(mock, []interface{}{
+	if _, err := shouldHaveReceived(server.TestSpanner, []interface{}{
 		&sppb.CreateSessionRequest{},
 		&sppb.CommitRequest{},
 	}); err != nil {
@@ -171,20 +166,15 @@ func TestApply_Single(t *testing.T) {
 func TestApply_RetryOnAbort(t *testing.T) {
 	ctx := context.Background()
 	t.Parallel()
-	client, _, mock, cleanup := serverClientMock(t, SessionPoolConfig{})
-	defer cleanup()
+	server, client, teardown := setupMockedTestServer(t)
+	defer teardown()
 
 	// First commit will fail, and the retry will begin a new transaction.
 	errAbrt := spannerErrorf(codes.Aborted, "")
-	firstCommitCall := true
-	mock.CommitFn = func(c context.Context, r *sppb.CommitRequest, opts ...grpc.CallOption) (*sppb.CommitResponse, error) {
-		if firstCommitCall {
-			mock.MockCloudSpannerClient.ReceivedRequests <- r
-			firstCommitCall = false
-			return nil, errAbrt
-		}
-		return mock.MockCloudSpannerClient.Commit(c, r, opts...)
-	}
+	server.TestSpanner.PutExecutionTime(MethodCommitTransaction,
+		SimulatedExecutionTime{
+			Errors: []error{errAbrt},
+		})
 
 	ms := []*Mutation{
 		Insert("Accounts", []string{"AccountId"}, []interface{}{int64(1)}),
@@ -194,7 +184,7 @@ func TestApply_RetryOnAbort(t *testing.T) {
 		t.Fatalf("ReadWriteTransaction retry on abort, got %v, want nil.", e)
 	}
 
-	if err := shouldHaveReceived(mock, []interface{}{
+	if _, err := shouldHaveReceived(server.TestSpanner, []interface{}{
 		&sppb.CreateSessionRequest{},
 		&sppb.BeginTransactionRequest{},
 		&sppb.CommitRequest{}, // First commit fails.
@@ -209,18 +199,18 @@ func TestApply_RetryOnAbort(t *testing.T) {
 func TestTransaction_NotFound(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	client, _, mock, cleanup := serverClientMock(t, SessionPoolConfig{})
-	defer cleanup()
+	server, client, teardown := setupMockedTestServer(t)
+	defer teardown()
 
 	wantErr := spannerErrorf(codes.NotFound, "Session not found")
-	mock.BeginTransactionFn = func(c context.Context, r *sppb.BeginTransactionRequest, opts ...grpc.CallOption) (*sppb.Transaction, error) {
-		mock.MockCloudSpannerClient.ReceivedRequests <- r
-		return nil, wantErr
-	}
-	mock.CommitFn = func(c context.Context, r *sppb.CommitRequest, opts ...grpc.CallOption) (*sppb.CommitResponse, error) {
-		mock.MockCloudSpannerClient.ReceivedRequests <- r
-		return nil, wantErr
-	}
+	server.TestSpanner.PutExecutionTime(MethodBeginTransaction,
+		SimulatedExecutionTime{
+			Errors: []error{wantErr, wantErr, wantErr},
+		})
+	server.TestSpanner.PutExecutionTime(MethodCommitTransaction,
+		SimulatedExecutionTime{
+			Errors: []error{wantErr, wantErr, wantErr},
+		})
 
 	txn := client.ReadOnlyTransaction()
 	defer txn.Close()
@@ -229,7 +219,8 @@ func TestTransaction_NotFound(t *testing.T) {
 		t.Fatalf("Expect acquire to fail, got %v, want %v.", got, wantErr)
 	}
 
-	// The failure should recycle the session, we expect it to be used in following requests.
+	// The failure should recycle the session, we expect it to be used in
+	// following requests.
 	if got := txn.Query(ctx, NewStatement("SELECT 1")); !testEqual(wantErr, got.err) {
 		t.Fatalf("Expect Query to fail, got %v, want %v.", got.err, wantErr)
 	}
@@ -252,8 +243,8 @@ func TestTransaction_NotFound(t *testing.T) {
 func TestReadWriteTransaction_ErrorReturned(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	client, _, mock, cleanup := serverClientMock(t, SessionPoolConfig{})
-	defer cleanup()
+	server, client, teardown := setupMockedTestServer(t)
+	defer teardown()
 
 	want := errors.New("an error")
 	_, got := client.ReadWriteTransaction(ctx, func(context.Context, *ReadWriteTransaction) error {
@@ -262,12 +253,74 @@ func TestReadWriteTransaction_ErrorReturned(t *testing.T) {
 	if got != want {
 		t.Fatalf("got %+v, want %+v", got, want)
 	}
-	if err := shouldHaveReceived(mock, []interface{}{
+	requests := drainRequestsFromServer(server.TestSpanner)
+	if err := compareRequests([]interface{}{
 		&sppb.CreateSessionRequest{},
 		&sppb.BeginTransactionRequest{},
-		&sppb.RollbackRequest{},
-	}); err != nil {
+		&sppb.RollbackRequest{}}, requests); err != nil {
+		// TODO: remove this once the session pool maintainer has been changed
+		// so that is doesn't delete sessions already during the first
+		// maintenance window.
+		// If we failed to get 3, it might have because - due to timing - we got
+		// a fourth request. If this request is DeleteSession, that's OK and
+		// expected.
+		if err := compareRequests([]interface{}{
+			&sppb.CreateSessionRequest{},
+			&sppb.BeginTransactionRequest{},
+			&sppb.RollbackRequest{},
+			&sppb.DeleteSessionRequest{}}, requests); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestBatchDML_WithMultipleDML(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	server, client, teardown := setupMockedTestServer(t)
+	defer teardown()
+
+	_, err := client.ReadWriteTransaction(ctx, func(ctx context.Context, tx *ReadWriteTransaction) (err error) {
+		if _, err = tx.Update(ctx, Statement{SQL: UpdateBarSetFoo}); err != nil {
+			return err
+		}
+		if _, err = tx.BatchUpdate(ctx, []Statement{{SQL: UpdateBarSetFoo}, {SQL: UpdateBarSetFoo}}); err != nil {
+			return err
+		}
+		if _, err = tx.Update(ctx, Statement{SQL: UpdateBarSetFoo}); err != nil {
+			return err
+		}
+		_, err = tx.BatchUpdate(ctx, []Statement{{SQL: UpdateBarSetFoo}})
+		return err
+	})
+	if err != nil {
 		t.Fatal(err)
+	}
+
+	gotReqs, err := shouldHaveReceived(server.TestSpanner, []interface{}{
+		&sppb.CreateSessionRequest{},
+		&sppb.BeginTransactionRequest{},
+		&sppb.ExecuteSqlRequest{},
+		&sppb.ExecuteBatchDmlRequest{},
+		&sppb.ExecuteSqlRequest{},
+		&sppb.ExecuteBatchDmlRequest{},
+		&sppb.CommitRequest{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := gotReqs[2].(*sppb.ExecuteSqlRequest).Seqno, int64(1); got != want {
+		t.Errorf("got %d, want %d", got, want)
+	}
+	if got, want := gotReqs[3].(*sppb.ExecuteBatchDmlRequest).Seqno, int64(2); got != want {
+		t.Errorf("got %d, want %d", got, want)
+	}
+	if got, want := gotReqs[4].(*sppb.ExecuteSqlRequest).Seqno, int64(3); got != want {
+		t.Errorf("got %d, want %d", got, want)
+	}
+	if got, want := gotReqs[5].(*sppb.ExecuteBatchDmlRequest).Seqno, int64(4); got != want {
+		t.Errorf("got %d, want %d", got, want)
 	}
 }
 
@@ -276,9 +329,13 @@ func TestReadWriteTransaction_ErrorReturned(t *testing.T) {
 //
 // Note: this in-place modifies serverClientMock by popping items off the
 // ReceivedRequests channel.
-func shouldHaveReceived(mock *testutil.FuncMock, want []interface{}) error {
-	got := drainRequests(mock)
+func shouldHaveReceived(server InMemSpannerServer, want []interface{}) ([]interface{}, error) {
+	got := drainRequestsFromServer(server)
+	return got, compareRequests(want, got)
+}
 
+// Compares expected requests (want) with actual requests (got).
+func compareRequests(want []interface{}, got []interface{}) error {
 	if len(got) != len(want) {
 		var gotMsg string
 		for _, r := range got {
@@ -298,47 +355,19 @@ func shouldHaveReceived(mock *testutil.FuncMock, want []interface{}) error {
 			return fmt.Errorf("request %d: got %+v, want %+v", i, reflect.TypeOf(got[i]), reflect.TypeOf(want))
 		}
 	}
-
 	return nil
 }
 
-func drainRequests(mock *testutil.FuncMock) []interface{} {
+func drainRequestsFromServer(server InMemSpannerServer) []interface{} {
 	var reqs []interface{}
 loop:
 	for {
 		select {
-		case req := <-mock.ReceivedRequests:
+		case req := <-server.ReceivedRequests():
 			reqs = append(reqs, req)
 		default:
 			break loop
 		}
 	}
 	return reqs
-}
-
-// serverClientMock sets up a client configured to a NewMockCloudSpannerClient
-// that is wrapped with a function-injectable wrapper.
-//
-// Note: be sure to call cleanup!
-func serverClientMock(t *testing.T, spc SessionPoolConfig) (_ *Client, _ *sessionPool, _ *testutil.FuncMock, cleanup func()) {
-	rawServerStub := testutil.NewMockCloudSpannerClient(t)
-	serverClientMock := testutil.FuncMock{MockCloudSpannerClient: rawServerStub}
-	spc.getRPCClient = func() (sppb.SpannerClient, error) {
-		return &serverClientMock, nil
-	}
-	db := "mockdb"
-	sp, err := newSessionPool(db, spc, nil)
-	if err != nil {
-		t.Fatalf("cannot create session pool: %v", err)
-	}
-	client := Client{
-		database:     db,
-		idleSessions: sp,
-	}
-	cleanup = func() {
-		client.Close()
-		sp.hc.close()
-		sp.close()
-	}
-	return &client, sp, &serverClientMock, cleanup
 }

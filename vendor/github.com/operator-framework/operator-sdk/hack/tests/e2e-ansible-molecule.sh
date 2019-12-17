@@ -5,28 +5,32 @@ source hack/lib/test_lib.sh
 set -eux
 
 ROOTDIR="$(pwd)"
-GOTMP="$(mktemp -d -p $GOPATH/src)"
-trap_add 'rm -rf $GOTMP' EXIT
-# Needs to be from source until 2.20 comes out
-pip install --user git+https://github.com/ansible/molecule.git
-pip install --user docker openshift jmespath
+TMPDIR="$(mktemp -d)"
+trap_add 'rm -rf $TMPDIR' EXIT
+pip3 install --user pyasn1==0.4.7 pyasn1-modules==0.2.6 idna==2.8 ipaddress==1.0.22
+pip3 install --user molecule==2.22
+pip3 install --user docker openshift jmespath
 
 deploy_prereqs() {
     kubectl create -f "$OPERATORDIR/deploy/service_account.yaml"
     kubectl create -f "$OPERATORDIR/deploy/role.yaml"
     kubectl create -f "$OPERATORDIR/deploy/role_binding.yaml"
-    kubectl create -f "$OPERATORDIR/deploy/crds/ansible_v1alpha1_memcached_crd.yaml"
+    kubectl create -f "$OPERATORDIR/deploy/crds/ansible.example.com_memcacheds_crd.yaml"
 }
 
 remove_prereqs() {
-    kubectl delete --ignore-not-found=true -f "$OPERATORDIR/deploy/service_account.yaml"
-    kubectl delete --ignore-not-found=true -f "$OPERATORDIR/deploy/role.yaml"
-    kubectl delete --ignore-not-found=true -f "$OPERATORDIR/deploy/role_binding.yaml"
-    kubectl delete --ignore-not-found=true -f "$OPERATORDIR/deploy/crds/ansible_v1alpha1_memcached_crd.yaml"
+    kubectl delete --wait=true --ignore-not-found=true --timeout=60s -f "$OPERATORDIR/deploy/crds/ansible.example.com_memcacheds_crd.yaml"
+    kubectl delete --wait=true --ignore-not-found=true -f "$OPERATORDIR/deploy/service_account.yaml"
+    kubectl delete --wait=true --ignore-not-found=true -f "$OPERATORDIR/deploy/role.yaml"
+    kubectl delete --wait=true --ignore-not-found=true -f "$OPERATORDIR/deploy/role_binding.yaml"
 }
 
-pushd "$GOTMP"
-operator-sdk new memcached-operator --api-version=ansible.example.com/v1alpha1 --kind=Memcached --type=ansible --generate-playbook
+pushd "$TMPDIR"
+operator-sdk new memcached-operator \
+  --api-version=ansible.example.com/v1alpha1 \
+  --kind=Memcached \
+  --type=ansible \
+  --generate-playbook
 cp "$ROOTDIR/test/ansible-memcached/tasks.yml" memcached-operator/roles/memcached/tasks/main.yml
 cp "$ROOTDIR/test/ansible-memcached/defaults.yml" memcached-operator/roles/memcached/defaults/main.yml
 cp "$ROOTDIR/test/ansible-memcached/asserts.yml"  memcached-operator/molecule/default/asserts.yml
@@ -39,18 +43,16 @@ cat "$ROOTDIR/test/ansible-memcached/prepare-test-image.yml" >> memcached-operat
 cat "$ROOTDIR/test/ansible-memcached/watches-v1-kind.yaml" >> memcached-operator/watches.yaml
 
 
+
 # Test local
 pushd memcached-operator
+# Use the following sed command to check it on macOsX.
+# More info: https://www.mkyong.com/mac/sed-command-hits-undefined-label-error-on-mac-os-x/
+# sed -i "" 's|\(FROM quay.io/operator-framework/ansible-operator\)\(:.*\)\?|\1:dev|g' build/Dockerfile
+# The following code is the default used (Not valid for MacOSX)
 sed -i 's|\(FROM quay.io/operator-framework/ansible-operator\)\(:.*\)\?|\1:dev|g' build/Dockerfile
 OPERATORDIR="$(pwd)"
 TEST_CLUSTER_PORT=24443 operator-sdk test local --namespace default
-
-# Test cluster
-DEST_IMAGE="quay.io/example/memcached-operator:v0.0.2-test"
-operator-sdk build --enable-tests "$DEST_IMAGE"
-trap_add 'remove_prereqs' EXIT
-deploy_prereqs
-operator-sdk test cluster --image-pull-policy Never --namespace default --service-account memcached-operator ${DEST_IMAGE}
 
 remove_prereqs
 
@@ -58,7 +60,10 @@ popd
 popd
 
 pushd "${ROOTDIR}/test/ansible-inventory"
-
+# Use the following sed command to check it on macOsX.
+# More info: https://www.mkyong.com/mac/sed-command-hits-undefined-label-error-on-mac-os-x/
+# sed -i "" 's|\(FROM quay.io/operator-framework/ansible-operator\)\(:.*\)\?|\1:dev|g' build/Dockerfile
+# The following code is the default used (Not valid for MacOSX)
 sed -i 's|\(FROM quay.io/operator-framework/ansible-operator\)\(:.*\)\?|\1:dev|g' build/Dockerfile
 TEST_CLUSTER_PORT=24443 operator-sdk test local --namespace default
 

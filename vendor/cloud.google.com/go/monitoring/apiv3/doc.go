@@ -21,7 +21,21 @@
 //
 // Manages your Stackdriver Monitoring data and configurations. Most projects
 // must be associated with a Stackdriver account, with a few exceptions as
-// noted on the individual method pages.
+// noted on the individual method pages. The table entries below are
+// presented in alphabetical order, not in order of common use. For
+// explanations of the concepts found in the table entries, read the
+// [Stackdriver Monitoring documentation](/monitoring/docs).
+//
+// Use of Context
+//
+// The ctx passed to NewClient is used for authentication requests and
+// for creating the underlying connection, but is not used for subsequent calls.
+// Individual methods on the client use the ctx given to them.
+//
+// To close the open connection, use the Close() method.
+//
+// For information about setting deadlines, reusing contexts, and more
+// please visit godoc.org/cloud.google.com/go.
 package monitoring // import "cloud.google.com/go/monitoring/apiv3"
 
 import (
@@ -91,4 +105,4 @@ func versionGo() string {
 	return "UNKNOWN"
 }
 
-const versionClient = "20190121"
+const versionClient = "20191115"

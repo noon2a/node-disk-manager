@@ -1,5 +1,5 @@
 # Base image
-FROM alpine:3.8
+FROM registry.access.redhat.com/ubi8/ubi-minimal:latest
 
 ENV PROXY=/usr/local/bin/scorecard-proxy \
     USER_UID=1001 \

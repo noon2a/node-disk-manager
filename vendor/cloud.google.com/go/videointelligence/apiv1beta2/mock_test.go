@@ -17,11 +17,6 @@
 package videointelligence
 
 import (
-	videointelligencepb "google.golang.org/genproto/googleapis/cloud/videointelligence/v1beta2"
-	longrunningpb "google.golang.org/genproto/googleapis/longrunning"
-)
-
-import (
 	"context"
 	"flag"
 	"fmt"
@@ -35,10 +30,14 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"google.golang.org/api/option"
+	videointelligencepb "google.golang.org/genproto/googleapis/cloud/videointelligence/v1beta2"
+	longrunningpb "google.golang.org/genproto/googleapis/longrunning"
+
 	status "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+
 	gstatus "google.golang.org/grpc/status"
 )
 
@@ -118,7 +117,7 @@ func TestVideoIntelligenceServiceAnnotateVideo(t *testing.T) {
 		Result: &longrunningpb.Operation_Response{Response: any},
 	})
 
-	var inputUri string = "gs://demomaker/cat.mp4"
+	var inputUri string = "gs://cloud-samples-data/video/cat.mp4"
 	var featuresElement videointelligencepb.Feature = videointelligencepb.Feature_LABEL_DETECTION
 	var features = []videointelligencepb.Feature{featuresElement}
 	var request = &videointelligencepb.AnnotateVideoRequest{
@@ -164,7 +163,7 @@ func TestVideoIntelligenceServiceAnnotateVideoError(t *testing.T) {
 		},
 	})
 
-	var inputUri string = "gs://demomaker/cat.mp4"
+	var inputUri string = "gs://cloud-samples-data/video/cat.mp4"
 	var featuresElement videointelligencepb.Feature = videointelligencepb.Feature_LABEL_DETECTION
 	var features = []videointelligencepb.Feature{featuresElement}
 	var request = &videointelligencepb.AnnotateVideoRequest{

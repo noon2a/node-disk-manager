@@ -34,176 +34,6 @@ func ExampleNewProductSearchClient() {
 	_ = c
 }
 
-func ExampleProductSearchClient_CreateProduct() {
-	ctx := context.Background()
-	c, err := vision.NewProductSearchClient(ctx)
-	if err != nil {
-		// TODO: Handle error.
-	}
-
-	req := &visionpb.CreateProductRequest{
-		// TODO: Fill request struct fields.
-	}
-	resp, err := c.CreateProduct(ctx, req)
-	if err != nil {
-		// TODO: Handle error.
-	}
-	// TODO: Use resp.
-	_ = resp
-}
-
-func ExampleProductSearchClient_ListProducts() {
-	ctx := context.Background()
-	c, err := vision.NewProductSearchClient(ctx)
-	if err != nil {
-		// TODO: Handle error.
-	}
-
-	req := &visionpb.ListProductsRequest{
-		// TODO: Fill request struct fields.
-	}
-	it := c.ListProducts(ctx, req)
-	for {
-		resp, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			// TODO: Handle error.
-		}
-		// TODO: Use resp.
-		_ = resp
-	}
-}
-
-func ExampleProductSearchClient_GetProduct() {
-	ctx := context.Background()
-	c, err := vision.NewProductSearchClient(ctx)
-	if err != nil {
-		// TODO: Handle error.
-	}
-
-	req := &visionpb.GetProductRequest{
-		// TODO: Fill request struct fields.
-	}
-	resp, err := c.GetProduct(ctx, req)
-	if err != nil {
-		// TODO: Handle error.
-	}
-	// TODO: Use resp.
-	_ = resp
-}
-
-func ExampleProductSearchClient_UpdateProduct() {
-	ctx := context.Background()
-	c, err := vision.NewProductSearchClient(ctx)
-	if err != nil {
-		// TODO: Handle error.
-	}
-
-	req := &visionpb.UpdateProductRequest{
-		// TODO: Fill request struct fields.
-	}
-	resp, err := c.UpdateProduct(ctx, req)
-	if err != nil {
-		// TODO: Handle error.
-	}
-	// TODO: Use resp.
-	_ = resp
-}
-
-func ExampleProductSearchClient_DeleteProduct() {
-	ctx := context.Background()
-	c, err := vision.NewProductSearchClient(ctx)
-	if err != nil {
-		// TODO: Handle error.
-	}
-
-	req := &visionpb.DeleteProductRequest{
-		// TODO: Fill request struct fields.
-	}
-	err = c.DeleteProduct(ctx, req)
-	if err != nil {
-		// TODO: Handle error.
-	}
-}
-
-func ExampleProductSearchClient_ListReferenceImages() {
-	ctx := context.Background()
-	c, err := vision.NewProductSearchClient(ctx)
-	if err != nil {
-		// TODO: Handle error.
-	}
-
-	req := &visionpb.ListReferenceImagesRequest{
-		// TODO: Fill request struct fields.
-	}
-	it := c.ListReferenceImages(ctx, req)
-	for {
-		resp, err := it.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			// TODO: Handle error.
-		}
-		// TODO: Use resp.
-		_ = resp
-	}
-}
-
-func ExampleProductSearchClient_GetReferenceImage() {
-	ctx := context.Background()
-	c, err := vision.NewProductSearchClient(ctx)
-	if err != nil {
-		// TODO: Handle error.
-	}
-
-	req := &visionpb.GetReferenceImageRequest{
-		// TODO: Fill request struct fields.
-	}
-	resp, err := c.GetReferenceImage(ctx, req)
-	if err != nil {
-		// TODO: Handle error.
-	}
-	// TODO: Use resp.
-	_ = resp
-}
-
-func ExampleProductSearchClient_DeleteReferenceImage() {
-	ctx := context.Background()
-	c, err := vision.NewProductSearchClient(ctx)
-	if err != nil {
-		// TODO: Handle error.
-	}
-
-	req := &visionpb.DeleteReferenceImageRequest{
-		// TODO: Fill request struct fields.
-	}
-	err = c.DeleteReferenceImage(ctx, req)
-	if err != nil {
-		// TODO: Handle error.
-	}
-}
-
-func ExampleProductSearchClient_CreateReferenceImage() {
-	ctx := context.Background()
-	c, err := vision.NewProductSearchClient(ctx)
-	if err != nil {
-		// TODO: Handle error.
-	}
-
-	req := &visionpb.CreateReferenceImageRequest{
-		// TODO: Fill request struct fields.
-	}
-	resp, err := c.CreateReferenceImage(ctx, req)
-	if err != nil {
-		// TODO: Handle error.
-	}
-	// TODO: Use resp.
-	_ = resp
-}
-
 func ExampleProductSearchClient_CreateProductSet() {
 	ctx := context.Background()
 	c, err := vision.NewProductSearchClient(ctx)
@@ -298,6 +128,176 @@ func ExampleProductSearchClient_DeleteProductSet() {
 	}
 }
 
+func ExampleProductSearchClient_CreateProduct() {
+	ctx := context.Background()
+	c, err := vision.NewProductSearchClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	req := &visionpb.CreateProductRequest{
+		// TODO: Fill request struct fields.
+	}
+	resp, err := c.CreateProduct(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
+}
+
+func ExampleProductSearchClient_ListProducts() {
+	ctx := context.Background()
+	c, err := vision.NewProductSearchClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	req := &visionpb.ListProductsRequest{
+		// TODO: Fill request struct fields.
+	}
+	it := c.ListProducts(ctx, req)
+	for {
+		resp, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			// TODO: Handle error.
+		}
+		// TODO: Use resp.
+		_ = resp
+	}
+}
+
+func ExampleProductSearchClient_GetProduct() {
+	ctx := context.Background()
+	c, err := vision.NewProductSearchClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	req := &visionpb.GetProductRequest{
+		// TODO: Fill request struct fields.
+	}
+	resp, err := c.GetProduct(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
+}
+
+func ExampleProductSearchClient_UpdateProduct() {
+	ctx := context.Background()
+	c, err := vision.NewProductSearchClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	req := &visionpb.UpdateProductRequest{
+		// TODO: Fill request struct fields.
+	}
+	resp, err := c.UpdateProduct(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
+}
+
+func ExampleProductSearchClient_DeleteProduct() {
+	ctx := context.Background()
+	c, err := vision.NewProductSearchClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	req := &visionpb.DeleteProductRequest{
+		// TODO: Fill request struct fields.
+	}
+	err = c.DeleteProduct(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+}
+
+func ExampleProductSearchClient_CreateReferenceImage() {
+	ctx := context.Background()
+	c, err := vision.NewProductSearchClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	req := &visionpb.CreateReferenceImageRequest{
+		// TODO: Fill request struct fields.
+	}
+	resp, err := c.CreateReferenceImage(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
+}
+
+func ExampleProductSearchClient_DeleteReferenceImage() {
+	ctx := context.Background()
+	c, err := vision.NewProductSearchClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	req := &visionpb.DeleteReferenceImageRequest{
+		// TODO: Fill request struct fields.
+	}
+	err = c.DeleteReferenceImage(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+}
+
+func ExampleProductSearchClient_ListReferenceImages() {
+	ctx := context.Background()
+	c, err := vision.NewProductSearchClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	req := &visionpb.ListReferenceImagesRequest{
+		// TODO: Fill request struct fields.
+	}
+	it := c.ListReferenceImages(ctx, req)
+	for {
+		resp, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			// TODO: Handle error.
+		}
+		// TODO: Use resp.
+		_ = resp
+	}
+}
+
+func ExampleProductSearchClient_GetReferenceImage() {
+	ctx := context.Background()
+	c, err := vision.NewProductSearchClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	req := &visionpb.GetReferenceImageRequest{
+		// TODO: Fill request struct fields.
+	}
+	resp, err := c.GetReferenceImage(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+	// TODO: Use resp.
+	_ = resp
+}
+
 func ExampleProductSearchClient_AddProductToProductSet() {
 	ctx := context.Background()
 	c, err := vision.NewProductSearchClient(ctx)
@@ -375,4 +375,23 @@ func ExampleProductSearchClient_ImportProductSets() {
 	}
 	// TODO: Use resp.
 	_ = resp
+}
+
+func ExampleProductSearchClient_PurgeProducts() {
+	ctx := context.Background()
+	c, err := vision.NewProductSearchClient(ctx)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	req := &visionpb.PurgeProductsRequest{
+		// TODO: Fill request struct fields.
+	}
+	op, err := c.PurgeProducts(ctx, req)
+	if err != nil {
+		// TODO: Handle error.
+	}
+
+	err = op.Wait(ctx)
+	// TODO: Handle error.
 }

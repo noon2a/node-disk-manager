@@ -33,13 +33,15 @@ func TestBucketAttrsToRawBucket(t *testing.T) {
 		ACL:  []ACLRule{{Entity: "bob@example.com", Role: RoleOwner, Domain: "d", Email: "e"}},
 		DefaultObjectACL: []ACLRule{{Entity: AllUsers, Role: RoleReader, EntityID: "eid",
 			ProjectTeam: &ProjectTeam{ProjectNumber: "17", Team: "t"}}},
+		Etag:         "Zkyw9ACJZUvcYmlFaKGChzhmtnE/dt1zHSfweiWpwzdGsqXwuJZqiD0",
 		Location:     "loc",
 		StorageClass: "class",
 		RetentionPolicy: &RetentionPolicy{
 			RetentionPeriod: 3 * time.Second,
 		},
-		BucketPolicyOnly:  BucketPolicyOnly{Enabled: true},
-		VersioningEnabled: false,
+		BucketPolicyOnly:         BucketPolicyOnly{Enabled: true},
+		UniformBucketLevelAccess: UniformBucketLevelAccess{Enabled: true},
+		VersioningEnabled:        false,
 		// should be ignored:
 		MetaGeneration: 39,
 		Created:        time.Now(),
@@ -65,7 +67,7 @@ func TestBucketAttrsToRawBucket(t *testing.T) {
 					AgeInDays:             10,
 					Liveness:              Live,
 					CreatedBefore:         time.Date(2017, 1, 2, 3, 4, 5, 6, time.UTC),
-					MatchesStorageClasses: []string{"MULTI_REGIONAL", "REGIONAL", "STANDARD"},
+					MatchesStorageClasses: []string{"STANDARD"},
 					NumNewerVersions:      3,
 				},
 			}, {
@@ -104,7 +106,7 @@ func TestBucketAttrsToRawBucket(t *testing.T) {
 			RetentionPeriod: 3,
 		},
 		IamConfiguration: &raw.BucketIamConfiguration{
-			BucketPolicyOnly: &raw.BucketIamConfigurationBucketPolicyOnly{
+			UniformBucketLevelAccess: &raw.BucketIamConfigurationUniformBucketLevelAccess{
 				Enabled: true,
 			},
 		},
@@ -131,7 +133,7 @@ func TestBucketAttrsToRawBucket(t *testing.T) {
 					Age:                 10,
 					IsLive:              googleapi.Bool(true),
 					CreatedBefore:       "2017-01-02",
-					MatchesStorageClass: []string{"MULTI_REGIONAL", "REGIONAL", "STANDARD"},
+					MatchesStorageClass: []string{"STANDARD"},
 					NumNewerVersions:    3,
 				},
 			}, {
@@ -167,17 +169,72 @@ func TestBucketAttrsToRawBucket(t *testing.T) {
 	if msg := testutil.Diff(got, want); msg != "" {
 		t.Error(msg)
 	}
+
+	// Test that setting either of BucketPolicyOnly or UniformBucketLevelAccess
+	// will enable UniformBucketLevelAccess.
+	// Set UBLA.Enabled = true --> UBLA should be set to enabled in the proto.
+	attrs.BucketPolicyOnly = BucketPolicyOnly{}
+	attrs.UniformBucketLevelAccess = UniformBucketLevelAccess{Enabled: true}
+	got = attrs.toRawBucket()
+	want.IamConfiguration = &raw.BucketIamConfiguration{
+		UniformBucketLevelAccess: &raw.BucketIamConfigurationUniformBucketLevelAccess{
+			Enabled: true,
+		},
+	}
+	if msg := testutil.Diff(got, want); msg != "" {
+		t.Errorf(msg)
+	}
+
+	// Set BucketPolicyOnly.Enabled = true --> UBLA should be set to enabled in
+	// the proto.
+	attrs.BucketPolicyOnly = BucketPolicyOnly{Enabled: true}
+	attrs.UniformBucketLevelAccess = UniformBucketLevelAccess{}
+	got = attrs.toRawBucket()
+	want.IamConfiguration = &raw.BucketIamConfiguration{
+		UniformBucketLevelAccess: &raw.BucketIamConfigurationUniformBucketLevelAccess{
+			Enabled: true,
+		},
+	}
+	if msg := testutil.Diff(got, want); msg != "" {
+		t.Errorf(msg)
+	}
+
+	// Set both BucketPolicyOnly.Enabled = true and
+	// UniformBucketLevelAccess.Enabled=true --> UBLA should be set to enabled
+	// in the proto.
+	attrs.BucketPolicyOnly = BucketPolicyOnly{Enabled: true}
+	attrs.UniformBucketLevelAccess = UniformBucketLevelAccess{Enabled: true}
+	got = attrs.toRawBucket()
+	want.IamConfiguration = &raw.BucketIamConfiguration{
+		UniformBucketLevelAccess: &raw.BucketIamConfigurationUniformBucketLevelAccess{
+			Enabled: true,
+		},
+	}
+	if msg := testutil.Diff(got, want); msg != "" {
+		t.Errorf(msg)
+	}
+
+	// Set UBLA.Enabled=false and BucketPolicyOnly.Enabled=false --> UBLA
+	// should be disabled in the proto.
+	attrs.BucketPolicyOnly = BucketPolicyOnly{}
+	attrs.UniformBucketLevelAccess = UniformBucketLevelAccess{}
+	got = attrs.toRawBucket()
+	want.IamConfiguration = nil
+	if msg := testutil.Diff(got, want); msg != "" {
+		t.Errorf(msg)
+	}
 }
 
 func TestBucketAttrsToUpdateToRawBucket(t *testing.T) {
 	t.Parallel()
 	au := &BucketAttrsToUpdate{
-		VersioningEnabled:     false,
-		RequesterPays:         false,
-		BucketPolicyOnly:      &BucketPolicyOnly{Enabled: false},
-		DefaultEventBasedHold: false,
-		RetentionPolicy:       &RetentionPolicy{RetentionPeriod: time.Hour},
-		Encryption:            &BucketEncryption{DefaultKMSKeyName: "key2"},
+		VersioningEnabled:        false,
+		RequesterPays:            false,
+		BucketPolicyOnly:         &BucketPolicyOnly{Enabled: false},
+		UniformBucketLevelAccess: &UniformBucketLevelAccess{Enabled: false},
+		DefaultEventBasedHold:    false,
+		RetentionPolicy:          &RetentionPolicy{RetentionPeriod: time.Hour},
+		Encryption:               &BucketEncryption{DefaultKMSKeyName: "key2"},
 		Lifecycle: &Lifecycle{
 			Rules: []LifecycleRule{
 				{
@@ -209,8 +266,9 @@ func TestBucketAttrsToUpdateToRawBucket(t *testing.T) {
 		DefaultEventBasedHold: false,
 		RetentionPolicy:       &raw.BucketRetentionPolicy{RetentionPeriod: 3600},
 		IamConfiguration: &raw.BucketIamConfiguration{
-			BucketPolicyOnly: &raw.BucketIamConfigurationBucketPolicyOnly{
-				Enabled: false,
+			UniformBucketLevelAccess: &raw.BucketIamConfigurationUniformBucketLevelAccess{
+				Enabled:         false,
+				ForceSendFields: []string{"Enabled"},
 			},
 		},
 		Encryption: &raw.BucketEncryption{DefaultKmsKeyName: "key2"},
@@ -256,6 +314,101 @@ func TestBucketAttrsToUpdateToRawBucket(t *testing.T) {
 	}
 	if msg := testutil.Diff(got, want); msg != "" {
 		t.Error(msg)
+	}
+
+	// Test that setting either of BucketPolicyOnly or UniformBucketLevelAccess
+	// will enable UniformBucketLevelAccess.
+	// Set UBLA.Enabled = true --> UBLA should be set to enabled in the proto.
+	au4 := &BucketAttrsToUpdate{
+		UniformBucketLevelAccess: &UniformBucketLevelAccess{Enabled: true},
+	}
+	got = au4.toRawBucket()
+	want = &raw.Bucket{
+		IamConfiguration: &raw.BucketIamConfiguration{
+			UniformBucketLevelAccess: &raw.BucketIamConfigurationUniformBucketLevelAccess{
+				Enabled:         true,
+				ForceSendFields: []string{"Enabled"},
+			},
+		},
+	}
+	if msg := testutil.Diff(got, want); msg != "" {
+		t.Errorf(msg)
+	}
+
+	// Set BucketPolicyOnly.Enabled = true --> UBLA should be set to enabled in
+	// the proto.
+	au5 := &BucketAttrsToUpdate{
+		BucketPolicyOnly: &BucketPolicyOnly{Enabled: true},
+	}
+	got = au5.toRawBucket()
+	want = &raw.Bucket{
+		IamConfiguration: &raw.BucketIamConfiguration{
+			UniformBucketLevelAccess: &raw.BucketIamConfigurationUniformBucketLevelAccess{
+				Enabled:         true,
+				ForceSendFields: []string{"Enabled"},
+			},
+		},
+	}
+	if msg := testutil.Diff(got, want); msg != "" {
+		t.Errorf(msg)
+	}
+
+	// Set both BucketPolicyOnly.Enabled = true and
+	// UniformBucketLevelAccess.Enabled=true --> UBLA should be set to enabled
+	// in the proto.
+	au6 := &BucketAttrsToUpdate{
+		BucketPolicyOnly:         &BucketPolicyOnly{Enabled: true},
+		UniformBucketLevelAccess: &UniformBucketLevelAccess{Enabled: true},
+	}
+	got = au6.toRawBucket()
+	want = &raw.Bucket{
+		IamConfiguration: &raw.BucketIamConfiguration{
+			UniformBucketLevelAccess: &raw.BucketIamConfigurationUniformBucketLevelAccess{
+				Enabled:         true,
+				ForceSendFields: []string{"Enabled"},
+			},
+		},
+	}
+	if msg := testutil.Diff(got, want); msg != "" {
+		t.Errorf(msg)
+	}
+
+	// Set UBLA.Enabled=false and BucketPolicyOnly.Enabled=false --> UBLA
+	// should be disabled in the proto.
+	au7 := &BucketAttrsToUpdate{
+		BucketPolicyOnly:         &BucketPolicyOnly{Enabled: false},
+		UniformBucketLevelAccess: &UniformBucketLevelAccess{Enabled: false},
+	}
+	got = au7.toRawBucket()
+	want = &raw.Bucket{
+		IamConfiguration: &raw.BucketIamConfiguration{
+			UniformBucketLevelAccess: &raw.BucketIamConfigurationUniformBucketLevelAccess{
+				Enabled:         false,
+				ForceSendFields: []string{"Enabled"},
+			},
+		},
+	}
+	if msg := testutil.Diff(got, want); msg != "" {
+		t.Errorf(msg)
+	}
+
+	// UBLA.Enabled will have precedence above BucketPolicyOnly.Enabled if both
+	// are set with different values.
+	au8 := &BucketAttrsToUpdate{
+		BucketPolicyOnly:         &BucketPolicyOnly{Enabled: true},
+		UniformBucketLevelAccess: &UniformBucketLevelAccess{Enabled: false},
+	}
+	got = au8.toRawBucket()
+	want = &raw.Bucket{
+		IamConfiguration: &raw.BucketIamConfiguration{
+			UniformBucketLevelAccess: &raw.BucketIamConfigurationUniformBucketLevelAccess{
+				Enabled:         false,
+				ForceSendFields: []string{"Enabled"},
+			},
+		},
+	}
+	if msg := testutil.Diff(got, want); msg != "" {
+		t.Errorf(msg)
 	}
 }
 
@@ -353,7 +506,7 @@ func TestCallBuilders(t *testing.T) {
 
 func TestNewBucket(t *testing.T) {
 	labels := map[string]string{"a": "b"}
-	matchClasses := []string{"MULTI_REGIONAL", "REGIONAL", "STANDARD"}
+	matchClasses := []string{"STANDARD"}
 	aTime := time.Date(2017, 1, 2, 0, 0, 0, 0, time.UTC)
 	rb := &raw.Bucket{
 		Name:                  "name",
@@ -365,6 +518,7 @@ func TestNewBucket(t *testing.T) {
 		Versioning:            &raw.BucketVersioning{Enabled: true},
 		Labels:                labels,
 		Billing:               &raw.BucketBilling{RequesterPays: true},
+		Etag:                  "Zkyw9ACJZUvcYmlFaKGChzhmtnE/dt1zHSfweiWpwzdGsqXwuJZqiD0",
 		Lifecycle: &raw.BucketLifecycle{
 			Rule: []*raw.BucketLifecycleRule{{
 				Action: &raw.BucketLifecycleRuleAction{
@@ -389,6 +543,10 @@ func TestNewBucket(t *testing.T) {
 				Enabled:    true,
 				LockedTime: aTime.Format(time.RFC3339),
 			},
+			UniformBucketLevelAccess: &raw.BucketIamConfigurationUniformBucketLevelAccess{
+				Enabled:    true,
+				LockedTime: aTime.Format(time.RFC3339),
+			},
 		},
 		Cors: []*raw.BucketCors{
 			{
@@ -401,9 +559,10 @@ func TestNewBucket(t *testing.T) {
 		Acl: []*raw.BucketAccessControl{
 			{Bucket: "name", Role: "READER", Email: "joe@example.com", Entity: "allUsers"},
 		},
-		Encryption: &raw.BucketEncryption{DefaultKmsKeyName: "key"},
-		Logging:    &raw.BucketLogging{LogBucket: "lb", LogObjectPrefix: "p"},
-		Website:    &raw.BucketWebsite{MainPageSuffix: "mps", NotFoundPage: "404"},
+		LocationType: "dual-region",
+		Encryption:   &raw.BucketEncryption{DefaultKmsKeyName: "key"},
+		Logging:      &raw.BucketLogging{LogBucket: "lb", LogObjectPrefix: "p"},
+		Website:      &raw.BucketWebsite{MainPageSuffix: "mps", NotFoundPage: "404"},
 	}
 	want := &BucketAttrs{
 		Name:                  "name",
@@ -414,6 +573,7 @@ func TestNewBucket(t *testing.T) {
 		Created:               time.Date(2017, 10, 23, 4, 5, 6, 0, time.UTC),
 		VersioningEnabled:     true,
 		Labels:                labels,
+		Etag:                  "Zkyw9ACJZUvcYmlFaKGChzhmtnE/dt1zHSfweiWpwzdGsqXwuJZqiD0",
 		RequesterPays:         true,
 		Lifecycle: Lifecycle{
 			Rules: []LifecycleRule{
@@ -436,7 +596,8 @@ func TestNewBucket(t *testing.T) {
 			EffectiveTime:   aTime,
 			RetentionPeriod: 3 * time.Second,
 		},
-		BucketPolicyOnly: BucketPolicyOnly{Enabled: true, LockedTime: aTime},
+		BucketPolicyOnly:         BucketPolicyOnly{Enabled: true, LockedTime: aTime},
+		UniformBucketLevelAccess: UniformBucketLevelAccess{Enabled: true, LockedTime: aTime},
 		CORS: []CORS{
 			{
 				MaxAge:          time.Hour,
@@ -450,6 +611,7 @@ func TestNewBucket(t *testing.T) {
 		Website:          &BucketWebsite{MainPageSuffix: "mps", NotFoundPage: "404"},
 		ACL:              []ACLRule{{Entity: "allUsers", Role: RoleReader, Email: "joe@example.com"}},
 		DefaultObjectACL: nil,
+		LocationType:     "dual-region",
 	}
 	got, err := newBucket(rb)
 	if err != nil {

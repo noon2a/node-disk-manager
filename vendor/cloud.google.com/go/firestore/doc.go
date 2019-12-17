@@ -18,8 +18,6 @@
 Package firestore provides a client for reading and writing to a Cloud Firestore
 database.
 
-   NOTE: This package is in beta. It is not stable, and may be subject to changes.
-
 See https://cloud.google.com/firestore/docs for an introduction
 to Cloud Firestore and additional help on using the Firestore API.
 
@@ -171,7 +169,8 @@ build up a query using Select, Where and other methods of Query.
 
 	q := states.Where("pop", ">", 10).OrderBy("pop", firestore.Desc)
 
-Supported operators include `<`, `<=`, `>`, `>=`, `==`, and 'array-contains'.
+Supported operators include '<', '<=', '>', '>=', '==', 'in', 'array-contains', and
+'array-contains-any'.
 
 Call the Query's Documents method to get an iterator, and use it like
 the other Google Cloud Client iterators.

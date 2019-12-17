@@ -62,10 +62,10 @@ var _ = Describe("Source", func() {
 
 	JustBeforeEach(func() {
 		instance1 = &source.Kind{Type: obj}
-		inject.CacheInto(icache, instance1)
+		Expect(inject.CacheInto(icache, instance1)).To(BeTrue())
 
 		instance2 = &source.Kind{Type: obj}
-		inject.CacheInto(icache, instance2)
+		Expect(inject.CacheInto(icache, instance2)).To(BeTrue())
 	})
 
 	AfterEach(func(done Done) {
@@ -131,8 +131,8 @@ var _ = Describe("Source", func() {
 				handler2 := newHandler(c2)
 
 				// Create 2 instances
-				instance1.Start(handler1, q)
-				instance2.Start(handler2, q)
+				Expect(instance1.Start(handler1, q)).To(Succeed())
+				Expect(instance2.Start(handler2, q)).To(Succeed())
 
 				By("Creating a Deployment and expecting the CreateEvent.")
 				created, err = client.Create(deployment)
@@ -265,7 +265,7 @@ var _ = Describe("Source", func() {
 					CreateFunc: func(evt event.CreateEvent, q2 workqueue.RateLimitingInterface) {
 						defer GinkgoRecover()
 						var err error
-						rs, err = clientset.AppsV1().ReplicaSets("default").Get(rs.Name, metav1.GetOptions{})
+						rs, err := clientset.AppsV1().ReplicaSets("default").Get(rs.Name, metav1.GetOptions{})
 						Expect(err).NotTo(HaveOccurred())
 
 						Expect(q2).To(BeIdenticalTo(q))
@@ -288,7 +288,7 @@ var _ = Describe("Source", func() {
 				}, q)
 				Expect(err).NotTo(HaveOccurred())
 
-				rs, err = clientset.AppsV1().ReplicaSets("default").Create(rs)
+				_, err = clientset.AppsV1().ReplicaSets("default").Create(rs)
 				Expect(err).NotTo(HaveOccurred())
 				<-c
 				close(done)
@@ -310,7 +310,7 @@ var _ = Describe("Source", func() {
 					UpdateFunc: func(evt event.UpdateEvent, q2 workqueue.RateLimitingInterface) {
 						defer GinkgoRecover()
 						var err error
-						rs2, err = clientset.AppsV1().ReplicaSets("default").Get(rs.Name, metav1.GetOptions{})
+						rs2, err := clientset.AppsV1().ReplicaSets("default").Get(rs.Name, metav1.GetOptions{})
 						Expect(err).NotTo(HaveOccurred())
 
 						Expect(q2).To(Equal(q))
@@ -333,7 +333,7 @@ var _ = Describe("Source", func() {
 				}, q)
 				Expect(err).NotTo(HaveOccurred())
 
-				rs2, err = clientset.AppsV1().ReplicaSets("default").Update(rs2)
+				_, err = clientset.AppsV1().ReplicaSets("default").Update(rs2)
 				Expect(err).NotTo(HaveOccurred())
 				<-c
 				close(done)

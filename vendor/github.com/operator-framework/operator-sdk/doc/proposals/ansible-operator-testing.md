@@ -1,4 +1,14 @@
-# Ansible Operator Testing
+# Ansible based-Operator Testing Proposal for Operator SDK
+
+> Status: **implemented**
+> 
+> Ansible-based operators can be tested with Molecule. Please see the testing documentation: [Testing Ansible Operators with Molecule](../ansible/dev/testing_guide.md).
+
+- [Background](#background)
+- [Goals](#goals)
+- [Non-Goals](#non-goals)
+- [Solution](#solution)
+- [Discussion / Further Investigation](#discussion--further-investigation)
 
 ## Background
 All operators should fit into the e2e testing framework used by operator-sdk, including Ansible Operator.
@@ -23,7 +33,7 @@ All operators should fit into the e2e testing framework used by operator-sdk, in
 1. Add a custom entrypoint for testing that will spin up the operator and then run the proper molecule scenario, which can be included in the
    Ansible Operator image when it is built with the `--enable-tests` option
 1. Update the `test local` subcommand so that when it is run in the context of an Ansible Operator, it will trigger a molecule run of the proper scenario
-1. Update the `test cluster` subcommand so that when it is run in the context of an Ansible Operator, a deployment of the operator with the custom testing entrypoint 
+1. Update the `test cluster` subcommand so that when it is run in the context of an Ansible Operator, a deployment of the operator with the custom testing entrypoint
    is created. The behavior here should approximate the Golang operator equivalent, in terms of reporting/termination
 
 ## Discussion / Further Investigation

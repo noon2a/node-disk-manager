@@ -15,222 +15,111 @@
 package runner
 
 import (
-	"html/template"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"testing"
-	"time"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
+
+	"github.com/operator-framework/operator-sdk/pkg/ansible/watches"
 )
 
-func TestNewFromWatches(t *testing.T) {
+func checkCmdFunc(t *testing.T, cmdFunc cmdFuncType, playbook, role string, verbosity int) {
+	ident := "test"
+	inputDirPath := "/test/path"
+	maxArtifacts := 1
+	var expectedCmd, gotCmd *exec.Cmd
+	verbosityString := ansibleVerbosityString(verbosity)
+	switch {
+	case playbook != "":
+		expectedCmd = playbookCmdFunc(verbosityString, playbook)(ident, inputDirPath, maxArtifacts)
+	case role != "":
+		expectedCmd = roleCmdFunc(verbosityString, role)(ident, inputDirPath, maxArtifacts)
+	}
+
+	gotCmd = cmdFunc(ident, inputDirPath, maxArtifacts)
+
+	if expectedCmd.Path != gotCmd.Path {
+		t.Fatalf("Unexpected cmd path %v expected cmd path %v", gotCmd.Path, expectedCmd.Path)
+	}
+
+	if !reflect.DeepEqual(expectedCmd.Args, gotCmd.Args) {
+		t.Fatalf("Unexpected cmd args %v expected cmd args %v", gotCmd.Args, expectedCmd.Args)
+	}
+}
+
+func TestNew(t *testing.T) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("Unable to get working director: %v", err)
 	}
-
-	validTemplate := struct {
-		ValidPlaybook string
-		ValidRole     string
-	}{
-
-		ValidPlaybook: filepath.Join(cwd, "testdata", "playbook.yml"),
-		ValidRole:     filepath.Join(cwd, "testdata", "roles", "role"),
-	}
-
-	tmpl, err := template.ParseFiles("testdata/valid.yaml.tmpl")
-	if err != nil {
-	}
-	f, err := os.Create("testdata/valid.yaml")
-	if err != nil {
-		t.Fatalf("Unable to create valid.yaml: %v", err)
-	}
-	err = tmpl.Execute(f, validTemplate)
-	if err != nil {
-		t.Fatalf("Unable to create valid.yaml: %v", err)
-		return
-	}
-
-	zeroSeconds := time.Duration(0)
-	twoSeconds := time.Second * 2
+	validPlaybook := filepath.Join(cwd, "testdata", "playbook.yml")
+	validRole := filepath.Join(cwd, "testdata", "roles", "role")
 	testCases := []struct {
-		name        string
-		path        string
-		expectedMap map[schema.GroupVersionKind]runner
-		shouldError bool
+		name      string
+		gvk       schema.GroupVersionKind
+		playbook  string
+		role      string
+		finalizer *watches.Finalizer
 	}{
 		{
-			name:        "error duplicate GVK",
-			path:        "testdata/duplicate_gvk.yaml",
-			shouldError: true,
+			name: "basic runner with playbook",
+			gvk: schema.GroupVersionKind{
+				Group:   "operator.example.com",
+				Version: "v1alpha1",
+				Kind:    "Example",
+			},
+			playbook: validPlaybook,
 		},
 		{
-			name:        "error no file",
-			path:        "testdata/please_don't_create_me_gvk.yaml",
-			shouldError: true,
+			name: "basic runner with role",
+			gvk: schema.GroupVersionKind{
+				Group:   "operator.example.com",
+				Version: "v1alpha1",
+				Kind:    "Example",
+			},
+			role: validRole,
 		},
 		{
-			name:        "error invalid yaml",
-			path:        "testdata/invalid.yaml",
-			shouldError: true,
+			name: "basic runner with playbook + finalizer playbook",
+			gvk: schema.GroupVersionKind{
+				Group:   "operator.example.com",
+				Version: "v1alpha1",
+				Kind:    "Example",
+			},
+			playbook: validPlaybook,
+			finalizer: &watches.Finalizer{
+				Name:     "example.finalizer.com",
+				Playbook: validPlaybook,
+			},
 		},
 		{
-			name:        "error invalid playbook path",
-			path:        "testdata/invalid_playbook_path.yaml",
-			shouldError: true,
+			name: "basic runner with role + finalizer role",
+			gvk: schema.GroupVersionKind{
+				Group:   "operator.example.com",
+				Version: "v1alpha1",
+				Kind:    "Example",
+			},
+			role: validRole,
+			finalizer: &watches.Finalizer{
+				Name: "example.finalizer.com",
+				Role: validRole,
+			},
 		},
 		{
-			name:        "error invalid playbook finalizer path",
-			path:        "testdata/invalid_finalizer_playbook_path.yaml",
-			shouldError: true,
-		},
-		{
-			name:        "error invalid role path",
-			path:        "testdata/invalid_role_path.yaml",
-			shouldError: true,
-		},
-		{
-			name:        "error invalid role finalizer path",
-			path:        "testdata/invalid_finalizer_role_path.yaml",
-			shouldError: true,
-		},
-		{
-			name:        "error invalid duration",
-			path:        "testdata/invalid_duration.yaml",
-			shouldError: true,
-		},
-		{
-			name:        "error invalid status",
-			path:        "testdata/invalid_status.yaml",
-			shouldError: true,
-		},
-		{
-			name: "valid watches file",
-			path: "testdata/valid.yaml",
-			expectedMap: map[schema.GroupVersionKind]runner{
-				schema.GroupVersionKind{
-					Version: "v1alpha1",
-					Group:   "app.example.com",
-					Kind:    "NoFinalizer",
-				}: runner{
-					GVK: schema.GroupVersionKind{
-						Version: "v1alpha1",
-						Group:   "app.example.com",
-						Kind:    "NoFinalizer",
-					},
-					Path:                        validTemplate.ValidPlaybook,
-					manageStatus:                true,
-					reconcilePeriod:             &twoSeconds,
-					watchDependentResources:     true,
-					watchClusterScopedResources: false,
-				},
-				schema.GroupVersionKind{
-					Version: "v1alpha1",
-					Group:   "app.example.com",
-					Kind:    "Playbook",
-				}: runner{
-					GVK: schema.GroupVersionKind{
-						Version: "v1alpha1",
-						Group:   "app.example.com",
-						Kind:    "Playbook",
-					},
-					Path:                        validTemplate.ValidPlaybook,
-					manageStatus:                true,
-					watchDependentResources:     true,
-					watchClusterScopedResources: false,
-					Finalizer: &Finalizer{
-						Name: "finalizer.app.example.com",
-						Role: validTemplate.ValidRole,
-						Vars: map[string]interface{}{"sentinel": "finalizer_running"},
-					},
-				},
-				schema.GroupVersionKind{
-					Version: "v1alpha1",
-					Group:   "app.example.com",
-					Kind:    "WatchClusterScoped",
-				}: runner{
-					GVK: schema.GroupVersionKind{
-						Version: "v1alpha1",
-						Group:   "app.example.com",
-						Kind:    "WatchClusterScoped",
-					},
-					Path:                        validTemplate.ValidPlaybook,
-					manageStatus:                true,
-					watchDependentResources:     true,
-					watchClusterScopedResources: true,
-				},
-				schema.GroupVersionKind{
-					Version: "v1alpha1",
-					Group:   "app.example.com",
-					Kind:    "NoReconcile",
-				}: runner{
-					GVK: schema.GroupVersionKind{
-						Version: "v1alpha1",
-						Group:   "app.example.com",
-						Kind:    "NoReconcile",
-					},
-					Path:            validTemplate.ValidPlaybook,
-					reconcilePeriod: &zeroSeconds,
-					manageStatus:    true,
-				},
-				schema.GroupVersionKind{
-					Version: "v1alpha1",
-					Group:   "app.example.com",
-					Kind:    "DefaultStatus",
-				}: runner{
-					GVK: schema.GroupVersionKind{
-						Version: "v1alpha1",
-						Group:   "app.example.com",
-						Kind:    "DefaultStatus",
-					},
-					Path:         validTemplate.ValidPlaybook,
-					manageStatus: true,
-				},
-				schema.GroupVersionKind{
-					Version: "v1alpha1",
-					Group:   "app.example.com",
-					Kind:    "DisableStatus",
-				}: runner{
-					GVK: schema.GroupVersionKind{
-						Version: "v1alpha1",
-						Group:   "app.example.com",
-						Kind:    "DisableStatus",
-					},
-					Path:         validTemplate.ValidPlaybook,
-					manageStatus: false,
-				},
-				schema.GroupVersionKind{
-					Version: "v1alpha1",
-					Group:   "app.example.com",
-					Kind:    "EnableStatus",
-				}: runner{
-					GVK: schema.GroupVersionKind{
-						Version: "v1alpha1",
-						Group:   "app.example.com",
-						Kind:    "EnableStatus",
-					},
-					Path:         validTemplate.ValidPlaybook,
-					manageStatus: true,
-				},
-				schema.GroupVersionKind{
-					Version: "v1alpha1",
-					Group:   "app.example.com",
-					Kind:    "Role",
-				}: runner{
-					GVK: schema.GroupVersionKind{
-						Version: "v1alpha1",
-						Group:   "app.example.com",
-						Kind:    "Role",
-					},
-					Path:         validTemplate.ValidRole,
-					manageStatus: true,
-					Finalizer: &Finalizer{
-						Name:     "finalizer.app.example.com",
-						Playbook: validTemplate.ValidPlaybook,
-						Vars:     map[string]interface{}{"sentinel": "finalizer_running"},
-					},
+			name: "basic runner with playbook + finalizer vars",
+			gvk: schema.GroupVersionKind{
+				Group:   "operator.example.com",
+				Version: "v1alpha1",
+				Kind:    "Example",
+			},
+			playbook: validPlaybook,
+			finalizer: &watches.Finalizer{
+				Name: "example.finalizer.com",
+				Vars: map[string]interface{}{
+					"state": "absent",
 				},
 			},
 		},
@@ -238,42 +127,76 @@ func TestNewFromWatches(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			m, err := NewFromWatches(tc.path)
-			if err != nil && !tc.shouldError {
+			testWatch := watches.New(tc.gvk, tc.role, tc.playbook, tc.finalizer)
+
+			testRunner, err := New(*testWatch)
+			if err != nil {
 				t.Fatalf("Error occurred unexpectedly: %v", err)
 			}
-			if err != nil && tc.shouldError {
-				return
+			testRunnerStruct, ok := testRunner.(*runner)
+			if !ok {
+				t.Fatalf("Error occurred unexpectedly: %v", err)
 			}
-			for k, expectedR := range tc.expectedMap {
-				r, ok := m[k]
-				if !ok {
-					t.Fatalf("Did not find expected GVK: %v", k)
+
+			switch {
+			case testWatch.Playbook != "":
+				if testRunnerStruct.Path != testWatch.Playbook {
+					t.Fatalf("Unexpected path %v expected path %v", testRunnerStruct.Path, testWatch.Playbook)
 				}
-				run, ok := r.(*runner)
-				if !ok {
-					t.Fatalf("Here: %#v", r)
+			case testWatch.Role != "":
+				if testRunnerStruct.Path != testWatch.Role {
+					t.Fatalf("Unexpected path %v expected path %v", testRunnerStruct.Path, testWatch.Role)
 				}
-				if run.Path != expectedR.Path {
-					t.Fatalf("The GVK: %v unexpected path: %v expected path: %v", k, run.Path, expectedR.Path)
+			}
+
+			if testRunnerStruct.GVK != testWatch.GroupVersionKind {
+				t.Fatalf("Unexpected GVK %v expected GVK %v", testRunnerStruct.GVK, testWatch.GroupVersionKind)
+			}
+
+			if testRunnerStruct.maxRunnerArtifacts != testWatch.MaxRunnerArtifacts {
+				t.Fatalf("Unexpected maxRunnerArtifacts %v expected maxRunnerArtifacts %v", testRunnerStruct.maxRunnerArtifacts, testWatch.MaxRunnerArtifacts)
+			}
+
+			// Check the cmdFunc
+			checkCmdFunc(t, testRunnerStruct.cmdFunc, testWatch.Playbook, testWatch.Role, testWatch.AnsibleVerbosity)
+
+			// Check finalizer
+			if testRunnerStruct.Finalizer != testWatch.Finalizer {
+				t.Fatalf("Unexpected finalizer %v expected finalizer %v", testRunnerStruct.Finalizer, testWatch.Finalizer)
+			}
+
+			if testWatch.Finalizer != nil {
+				if testRunnerStruct.Finalizer.Name != testWatch.Finalizer.Name {
+					t.Fatalf("Unexpected finalizer name %v expected finalizer name %v", testRunnerStruct.Finalizer.Name, testWatch.Finalizer.Name)
 				}
-				if run.GVK != expectedR.GVK {
-					t.Fatalf("The GVK: %v\nunexpected GVK: %#v\nexpected GVK: %#v", k, run.GVK, expectedR.GVK)
-				}
-				if run.manageStatus != expectedR.manageStatus {
-					t.Fatalf("The GVK: %v\nunexpected manageStatus:%#v\nexpected manageStatus: %#v", k, run.manageStatus, expectedR.manageStatus)
-				}
-				if run.Finalizer != expectedR.Finalizer {
-					if run.Finalizer.Name != expectedR.Finalizer.Name || run.Finalizer.Playbook != expectedR.Finalizer.Playbook || run.Finalizer.Role != expectedR.Finalizer.Role || reflect.DeepEqual(run.Finalizer.Vars["sentinel"], expectedR.Finalizer.Vars["sentininel"]) {
-						t.Fatalf("The GVK: %v\nunexpected finalizer: %#v\nexpected finalizer: %#v", k, run.Finalizer, expectedR.Finalizer)
-					}
-				}
-				if expectedR.reconcilePeriod != nil {
-					if *run.reconcilePeriod != *expectedR.reconcilePeriod {
-						t.Fatalf("The GVK: %v unexpected reconcile period: %v expected reconcile period: %v", k, run.reconcilePeriod, expectedR.reconcilePeriod)
-					}
+
+				if len(testWatch.Finalizer.Vars) == 0 {
+					checkCmdFunc(t, testRunnerStruct.cmdFunc, testWatch.Finalizer.Playbook, testWatch.Finalizer.Role, testWatch.AnsibleVerbosity)
+				} else {
+					// when finalizer vars is set the finalizerCmdFunc should be the same as the cmdFunc
+					checkCmdFunc(t, testRunnerStruct.finalizerCmdFunc, testWatch.Playbook, testWatch.Role, testWatch.AnsibleVerbosity)
 				}
 			}
 		})
+	}
+}
+
+func TestAnsibleVerbosityString(t *testing.T) {
+	testCases := []struct {
+		verbosity      int
+		expectedString string
+	}{
+		{verbosity: -1, expectedString: ""},
+		{verbosity: 0, expectedString: ""},
+		{verbosity: 1, expectedString: "-v"},
+		{verbosity: 2, expectedString: "-vv"},
+		{verbosity: 7, expectedString: "-vvvvvvv"},
+	}
+
+	for _, tc := range testCases {
+		gotString := ansibleVerbosityString(tc.verbosity)
+		if tc.expectedString != gotString {
+			t.Fatalf("Unexpected string %v expected %v", gotString, tc.expectedString)
+		}
 	}
 }
