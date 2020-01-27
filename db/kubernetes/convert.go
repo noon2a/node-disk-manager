@@ -40,7 +40,7 @@ func convertBlockDeviceAPIToBlockDevice(in *api.BlockDevice, out *blockdevice.Bl
 
 	//labels
 	out.NodeAttributes = make(blockdevice.NodeAttribute)
-	out.NodeAttributes[blockdevice.HostName] = in.Labels[KubernetesHostNameLabel]
+	out.NodeAttributes[blockdevice.HostName] = in.Labels[HostNameLabel]
 	out.NodeAttributes[blockdevice.NodeName] = in.Spec.NodeAttributes.NodeName
 
 	//spec
