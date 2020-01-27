@@ -187,7 +187,7 @@ func CreateFakeClient(t *testing.T) (client.Client, *runtime.Scheme) {
 	s.AddKnownTypes(openebsv1alpha1.SchemeGroupVersion, deviceR)
 	s.AddKnownTypes(openebsv1alpha1.SchemeGroupVersion, deviceList)
 
-	fakeNdmClient := fake.NewFakeClient(diskObjs...)
+	fakeNdmClient := fake.NewFakeClientWithScheme(s, diskObjs...)
 	if fakeNdmClient == nil {
 		fmt.Println("NDMClient is not created")
 	}

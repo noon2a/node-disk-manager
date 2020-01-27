@@ -192,7 +192,7 @@ func TestSmartProbe(t *testing.T) {
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			assert.Equal(t, test.expectedDisk, test.actualDisk)
+			compareDisk(t, test.expectedDisk, test.actualDisk)
 			assert.Equal(t, test.expectedError, test.actualError)
 		})
 	}

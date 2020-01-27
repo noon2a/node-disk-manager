@@ -236,7 +236,7 @@ func CreateFakeClient(t *testing.T) client.Client {
 	s.AddKnownTypes(apis.SchemeGroupVersion, deviceR)
 	s.AddKnownTypes(apis.SchemeGroupVersion, deviceList)
 
-	fakeNdmClient := ndmFakeClientset.NewFakeClient(objs...)
+	fakeNdmClient := ndmFakeClientset.NewFakeClientWithScheme(s, objs...)
 	if fakeNdmClient == nil {
 		fmt.Println("NDMClient is not created")
 	}

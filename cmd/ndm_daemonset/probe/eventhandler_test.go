@@ -41,7 +41,6 @@ var (
 	fakeModel      = "fake-disk-model"
 	fakeSerial     = "fake-disk-serial"
 	fakeVendor     = "fake-disk-vendor"
-	fakeDiskType   = "disk"
 	fakeBDType     = "blockdevice"
 )
 
@@ -117,7 +116,7 @@ func CreateFakeClient(t *testing.T) client.Client {
 	s.AddKnownTypes(apis.SchemeGroupVersion, deviceR)
 	s.AddKnownTypes(apis.SchemeGroupVersion, deviceList)
 
-	fakeNdmClient := ndmFakeClientset.NewFakeClient(objs...)
+	fakeNdmClient := ndmFakeClientset.NewFakeClientWithScheme(s, objs...)
 	if fakeNdmClient == nil {
 		fmt.Println("NDMClient is not created")
 	}
@@ -210,7 +209,7 @@ func TestAddBlockDeviceEvent(t *testing.T) {
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			assert.Equal(t, test.expectedDisk, test.actualDisk)
+			compareBlockDevice(t, test.expectedDisk, test.actualDisk)
 			assert.Equal(t, test.expectedError, test.actualError)
 		})
 	}
@@ -263,8 +262,26 @@ func TestDeleteDiskEvent(t *testing.T) {
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			assert.Equal(t, test.expectedBD, test.actualBD)
+			compareBlockDevice(t, test.expectedBD, test.actualBD)
 			assert.Equal(t, test.expectedError, test.actualError)
 		})
+	}
+}
+
+// compareBlockDevice is the custom blockdevice comparison function. Only those values that need to be checked
+// for equality will be checked here. Resource version field will not be checked as it
+// will be updated on every write. Refer https://github.com/kubernetes-sigs/controller-runtime/pull/620
+func compareBlockDevice(t *testing.T, bd1, bd2 apis.BlockDevice) {
+	assert.Equal(t, bd1.Name, bd2.Name)
+	assert.Equal(t, bd1.Labels, bd2.Labels)
+	assert.Equal(t, bd1.Spec, bd2.Spec)
+	assert.Equal(t, bd1.Status, bd2.Status)
+}
+
+// compareBlockDeviceList is the custom comparison function for blockdevice list
+func compareBlockDeviceList(t *testing.T, bdList1, bdList2 apis.BlockDeviceList) {
+	assert.Equal(t, len(bdList1.Items), len(bdList2.Items))
+	for i := 0; i < len(bdList2.Items); i++ {
+		compareBlockDevice(t, bdList1.Items[i], bdList2.Items[i])
 	}
 }
