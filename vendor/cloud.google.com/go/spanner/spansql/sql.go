@@ -104,12 +104,25 @@ func (od OnDelete) SQL() string {
 	panic("unknown OnDelete")
 }
 
-// TODO func (ac AlterColumn) SQL() string { }
+func (ac AlterColumn) SQL() string {
+	return "ALTER COLUMN " + ac.Def.SQL()
+}
+
+func (d *Delete) SQL() string {
+	return "DELETE FROM " + d.Table + " WHERE " + d.Where.SQL()
+}
 
 func (cd ColumnDef) SQL() string {
 	str := cd.Name + " " + cd.Type.SQL()
 	if cd.NotNull {
 		str += " NOT NULL"
+	}
+	if cd.Type.Base == Timestamp && cd.AllowCommitTimestamp != nil {
+		if *cd.AllowCommitTimestamp {
+			str += " OPTIONS (allow_commit_timestamp = true)"
+		} else {
+			str += " OPTIONS (allow_commit_timestamp = null)"
+		}
 	}
 	return str
 }
@@ -178,6 +191,9 @@ func (q Query) SQL() string {
 
 func (sel Select) SQL() string {
 	str := "SELECT "
+	if sel.Distinct {
+		str += "DISTINCT "
+	}
 	for i, e := range sel.List {
 		if i > 0 {
 			str += ", "
@@ -196,6 +212,15 @@ func (sel Select) SQL() string {
 	if sel.Where != nil {
 		str += " WHERE " + sel.Where.SQL()
 	}
+	if len(sel.GroupBy) > 0 {
+		str += " GROUP BY "
+		for i, gb := range sel.GroupBy {
+			if i > 0 {
+				str += ", "
+			}
+			str += gb.SQL()
+		}
+	}
 	return str
 }
 
@@ -205,6 +230,36 @@ func (o Order) SQL() string {
 		str += " DESC"
 	}
 	return str
+}
+
+var arithOps = map[ArithOperator]string{
+	// Binary operators only; unary operators are handled first.
+	Mul:    "*",
+	Div:    "/",
+	Concat: "||",
+	Add:    "+",
+	Sub:    "-",
+	BitShl: "<<",
+	BitShr: ">>",
+	BitAnd: "&",
+	BitXor: "^",
+	BitOr:  "|",
+}
+
+func (ao ArithOp) SQL() string {
+	// Extra parens inserted to ensure the correct precedence.
+
+	switch ao.Op {
+	case Neg:
+		return "-(" + ao.RHS.SQL() + ")"
+	case BitNot:
+		return "~(" + ao.RHS.SQL() + ")"
+	}
+	op, ok := arithOps[ao.Op]
+	if !ok {
+		panic("unknown ArithOp")
+	}
+	return "(" + ao.LHS.SQL() + ")" + op + "(" + ao.RHS.SQL() + ")"
 }
 
 func (lo LogicalOp) SQL() string {
@@ -268,7 +323,19 @@ func (f Func) SQL() string {
 
 func (p Paren) SQL() string { return "(" + p.Expr.SQL() + ")" }
 
-func (id ID) SQL() string   { return string(id) }
+func (id ID) SQL() string {
+	// https://cloud.google.com/spanner/docs/lexical#identifiers
+
+	// TODO: If there are non-letters/numbers/underscores then this also needs quoting.
+
+	if IsKeyword(string(id)) {
+		// TODO: Escaping may be needed here.
+		return "`" + string(id) + "`"
+	}
+
+	return string(id)
+}
+
 func (p Param) SQL() string { return "@" + string(p) }
 
 func (b BoolLiteral) SQL() string {

@@ -15,23 +15,20 @@ should use the production Cloud Spanner instead.
 Here's a list of features that are missing or incomplete. It is roughly ordered
 by ascending esotericism:
 
-- SELECT GROUP BY
-- SELECT HAVING
-- arithmetic expressions (operators, parens)
-- transaction simulation
-- DML statements
+- expression functions
+- more aggregation functions
+- INSERT/UPDATE DML statements
 - case insensitivity
 - alternate literal types (esp. strings)
-- TIMESTAMP types
 - STRUCT types
-- expression functions
-- expression type casting, coercion
+- SELECT HAVING
 - joins
+- transaction simulation
+- expression type casting, coercion
 - query offset
 - SELECT aliases
 - subselects
 - set operations (UNION, INTERSECT, EXCEPT)
-- SELECT star expressions
 - partition support
 - conditional expressions
 - table sampling (implementation)

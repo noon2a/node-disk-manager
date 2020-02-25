@@ -24,9 +24,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/golang/protobuf/ptypes"
 	emptypb "github.com/golang/protobuf/ptypes/empty"
 	structpb "github.com/golang/protobuf/ptypes/struct"
 	"github.com/golang/protobuf/ptypes/timestamp"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/genproto/googleapis/rpc/status"
 	spannerpb "google.golang.org/genproto/googleapis/spanner/v1"
 	"google.golang.org/grpc/codes"
@@ -62,6 +64,7 @@ const (
 	MethodGetSession          string = "GET_SESSION"
 	MethodExecuteSql          string = "EXECUTE_SQL"
 	MethodExecuteStreamingSql string = "EXECUTE_STREAMING_SQL"
+	MethodExecuteBatchDml     string = "EXECUTE_BATCH_DML"
 )
 
 // StatementResult represents a mocked result on the test server. The result is
@@ -430,9 +433,18 @@ func (s *inMemSpannerServer) findSession(name string) (*spannerpb.Session, error
 	defer s.mu.Unlock()
 	session := s.sessions[name]
 	if session == nil {
-		return nil, gstatus.Error(codes.NotFound, fmt.Sprintf("Session %s not found", name))
+		return nil, newSessionNotFoundError(name)
 	}
 	return session, nil
+}
+
+// sessionResourceType is the type name of Spanner sessions.
+const sessionResourceType = "type.googleapis.com/google.spanner.v1.Session"
+
+func newSessionNotFoundError(name string) error {
+	s := gstatus.Newf(codes.NotFound, "Session not found: Session with id %s not found", name)
+	s, _ = s.WithDetails(&errdetails.ResourceInfo{ResourceType: sessionResourceType, ResourceName: name})
+	return s.Err()
 }
 
 func (s *inMemSpannerServer) updateSessionLastUseTime(session string) {
@@ -494,9 +506,18 @@ func (s *inMemSpannerServer) getTransactionByID(id []byte) (*spannerpb.Transacti
 	}
 	aborted, ok := s.abortedTransactions[string(id)]
 	if ok && aborted {
-		return nil, gstatus.Error(codes.Aborted, "Transaction has been aborted")
+		return nil, newAbortedErrorWithMinimalRetryDelay()
 	}
 	return tx, nil
+}
+
+func newAbortedErrorWithMinimalRetryDelay() error {
+	st := gstatus.New(codes.Aborted, "Transaction has been aborted")
+	retry := &errdetails.RetryInfo{
+		RetryDelay: ptypes.DurationProto(time.Nanosecond),
+	}
+	st, _ = st.WithDetails(retry)
+	return st.Err()
 }
 
 func (s *inMemSpannerServer) removeTransaction(tx *spannerpb.Transaction) {
@@ -773,13 +794,9 @@ func (s *inMemSpannerServer) ExecuteStreamingSql(req *spannerpb.ExecuteSqlReques
 }
 
 func (s *inMemSpannerServer) ExecuteBatchDml(ctx context.Context, req *spannerpb.ExecuteBatchDmlRequest) (*spannerpb.ExecuteBatchDmlResponse, error) {
-	s.mu.Lock()
-	if s.stopped {
-		s.mu.Unlock()
-		return nil, gstatus.Error(codes.Unavailable, "server has been stopped")
+	if err := s.simulateExecutionTime(MethodExecuteBatchDml, req); err != nil {
+		return nil, err
 	}
-	s.receivedRequests <- req
-	s.mu.Unlock()
 	if req.Session == "" {
 		return nil, gstatus.Error(codes.InvalidArgument, "Missing session name")
 	}

@@ -367,14 +367,30 @@ func TestSignedURL_MissingOptions(t *testing.T) {
 				GoogleAccessID: "access_id",
 				PrivateKey:     pk,
 			},
-			"missing required method",
+			errMethodNotValid.Error(),
+		},
+		{
+			&SignedURLOptions{
+				GoogleAccessID: "access_id",
+				PrivateKey:     pk,
+				Method:         "getMethod", // wrong method name
+			},
+			errMethodNotValid.Error(),
+		},
+		{
+			&SignedURLOptions{
+				GoogleAccessID: "access_id",
+				PrivateKey:     pk,
+				Method:         "get", // name will be uppercased
+			},
+			"missing required expires",
 		},
 		{
 			&SignedURLOptions{
 				GoogleAccessID: "access_id",
 				SignBytes:      func(b []byte) ([]byte, error) { return b, nil },
 			},
-			"missing required method",
+			errMethodNotValid.Error(),
 		},
 		{
 			&SignedURLOptions{
@@ -422,7 +438,7 @@ func TestSignedURL_MissingOptions(t *testing.T) {
 				Expires:        expires,
 				Scheme:         SigningSchemeV4,
 			},
-			"missing required method",
+			errMethodNotValid.Error(),
 		},
 		{
 			&SignedURLOptions{
@@ -467,6 +483,31 @@ func TestSignedURL_MissingOptions(t *testing.T) {
 		_, err := SignedURL("bucket", "name", test.opts)
 		if !strings.Contains(err.Error(), test.errMsg) {
 			t.Errorf("expected err: %v, found: %v", test.errMsg, err)
+		}
+	}
+}
+
+func TestPathEncodeV4(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{
+			"path/with/slashes",
+			"path/with/slashes",
+		},
+		{
+			"path/with/speci@lchar$&",
+			"path/with/speci%40lchar%24%26",
+		},
+		{
+			"path/with/un_ersc_re/~tilde/sp  ace/",
+			"path/with/un_ersc_re/~tilde/sp%20%20ace/",
+		},
+	}
+	for _, test := range tests {
+		if got := pathEncodeV4(test.input); got != test.want {
+			t.Errorf("pathEncodeV4(%q) =  %q, want %q", test.input, got, test.want)
 		}
 	}
 }
@@ -1141,5 +1182,25 @@ func TestAttrToFieldMapCoverage(t *testing.T) {
 				t.Errorf("ObjectAttrs.%v is not in attrToFieldMap", k)
 			}
 		}
+	}
+}
+
+// Create a client using a custom endpoint, and verify that raw.BasePath (used
+// for writes) and readHost (used for reads) are both set correctly.
+func TestWithEndpoint(t *testing.T) {
+	ctx := context.Background()
+	endpoint := "https://fake.gcs.com:8080/storage/v1"
+	c, err := NewClient(ctx, option.WithEndpoint(endpoint))
+	if err != nil {
+		t.Fatalf("error creating client: %v", err)
+	}
+
+	if c.raw.BasePath != endpoint {
+		t.Errorf("raw.BasePath not set correctly: got %v, want %v", c.raw.BasePath, endpoint)
+	}
+
+	want := "fake.gcs.com:8080"
+	if c.readHost != want {
+		t.Errorf("readHost not set correctly: got %v, want %v", c.readHost, want)
 	}
 }

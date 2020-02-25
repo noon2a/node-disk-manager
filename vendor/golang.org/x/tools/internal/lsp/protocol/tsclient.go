@@ -2,8 +2,8 @@ package protocol
 
 // Package protocol contains data types and code for LSP jsonrpcs
 // generated automatically from vscode-languageserver-node
-// commit: 635ab1fe6f8c57ce9402e573d007f24d6d290fd3
-// last fetched Sun Oct 13 2019 10:14:32 GMT-0400 (Eastern Daylight Time)
+// commit: 7b90c29d0cb5cd7b9c41084f6cb3781a955adeba
+// last fetched Wed Mar 04 2020 13:02:46 GMT-0500 (Eastern Standard Time)
 
 // Code generated (see typescript/README.md) DO NOT EDIT.
 
@@ -144,9 +144,9 @@ func (h clientHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 			log.Error(ctx, "", err)
 		}
 		return true
-
 	default:
 		return false
+
 	}
 }
 
@@ -194,17 +194,17 @@ func (s *clientDispatcher) UnregisterCapability(ctx context.Context, params *Unr
 }
 
 func (s *clientDispatcher) ShowMessageRequest(ctx context.Context, params *ShowMessageRequestParams) (*MessageActionItem /*MessageActionItem | null*/, error) {
-	var result MessageActionItem /*MessageActionItem | null*/
+	var result *MessageActionItem /*MessageActionItem | null*/
 	if err := s.Conn.Call(ctx, "window/showMessageRequest", params, &result); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return result, nil
 }
 
 func (s *clientDispatcher) ApplyEdit(ctx context.Context, params *ApplyWorkspaceEditParams) (*ApplyWorkspaceEditResponse, error) {
-	var result ApplyWorkspaceEditResponse
+	var result *ApplyWorkspaceEditResponse
 	if err := s.Conn.Call(ctx, "workspace/applyEdit", params, &result); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return result, nil
 }

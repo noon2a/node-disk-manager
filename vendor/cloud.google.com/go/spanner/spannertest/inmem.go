@@ -48,6 +48,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"net"
@@ -137,21 +138,6 @@ func timestampProto(t time.Time) *timestamppb.Timestamp {
 		return nil
 	}
 	return ts
-}
-
-type transaction struct {
-	// TODO: connect this with db.go.
-}
-
-func (t *transaction) Commit() error {
-	return nil
-}
-
-func (t *transaction) Rollback() error {
-	return nil
-}
-
-func (t *transaction) finish() {
 }
 
 // lro represents a Long-Running Operation, generally a schema change.
@@ -244,7 +230,7 @@ func (s *server) GetOperation(ctx context.Context, req *lropb.GetOperationReques
 // This is a convenience method for tests that may assume an existing schema.
 // The more general approach is to dial this server using an admin client, and
 // use the UpdateDatabaseDdl RPC method.
-func (s *Server) UpdateDDL(ddl spansql.DDL) error {
+func (s *Server) UpdateDDL(ddl *spansql.DDL) error {
 	ctx := context.Background()
 	for _, stmt := range ddl.List {
 		if st := s.s.runOneDDL(ctx, stmt); st.Code() != codes.OK {
@@ -376,13 +362,13 @@ func (s *server) DeleteSession(ctx context.Context, req *spannerpb.DeleteSession
 
 // popTx returns an existing transaction, removing it from the session.
 // This is called when a transaction is finishing (Commit, Rollback).
-func (s *server) popTx(sessionID, tid string) (tx *transaction, cleanup func(), err error) {
+func (s *server) popTx(sessionID, tid string) (tx *transaction, err error) {
 	s.mu.Lock()
 	sess, ok := s.sessions[sessionID]
 	s.mu.Unlock()
 	if !ok {
 		// TODO: what error does the real Spanner return?
-		return nil, nil, status.Errorf(codes.NotFound, "unknown session %q", sessionID)
+		return nil, status.Errorf(codes.NotFound, "unknown session %q", sessionID)
 	}
 
 	sess.mu.Lock()
@@ -394,9 +380,9 @@ func (s *server) popTx(sessionID, tid string) (tx *transaction, cleanup func(), 
 	sess.mu.Unlock()
 	if !ok {
 		// TODO: what error does the real Spanner return?
-		return nil, nil, status.Errorf(codes.NotFound, "unknown transaction ID %q", tid)
+		return nil, status.Errorf(codes.NotFound, "unknown transaction ID %q", tid)
 	}
-	return tx, tx.finish, nil
+	return tx, nil
 }
 
 // readTx returns a transaction for the given session and transaction selector.
@@ -414,17 +400,16 @@ func (s *server) readTx(ctx context.Context, session string, tsel *spannerpb.Tra
 	sess.lastUse = time.Now()
 	sess.mu.Unlock()
 
+	// Only give a read-only transaction regardless of whether the selector
+	// is requesting a read-write or read-only one, since this is in readTx
+	// and so shouldn't be mutating anyway.
 	singleUse := func() (*transaction, func(), error) {
-		tx := &transaction{}
-		return tx, tx.finish, nil
-	}
-	singleUseReadOnly := func() (*transaction, func(), error) {
-		// TODO: figure out a way to make this read-only.
-		return singleUse()
+		tx := s.db.NewReadOnlyTransaction()
+		return tx, tx.Rollback, nil
 	}
 
 	if tsel.GetSelector() == nil {
-		return singleUseReadOnly()
+		return singleUse()
 	}
 
 	switch sel := tsel.Selector.(type) {
@@ -434,22 +419,57 @@ func (s *server) readTx(ctx context.Context, session string, tsel *spannerpb.Tra
 		// Ignore options (e.g. timestamps).
 		switch mode := sel.SingleUse.Mode.(type) {
 		case *spannerpb.TransactionOptions_ReadOnly_:
-			return singleUseReadOnly()
+			return singleUse()
 		case *spannerpb.TransactionOptions_ReadWrite_:
 			return singleUse()
 		default:
 			return nil, nil, fmt.Errorf("single use transaction in mode %T not supported", mode)
 		}
 	case *spannerpb.TransactionSelector_Id:
-		id := sel.Id // []byte
-		_ = id       // TODO: lookup an existing transaction by ID.
-		tx := &transaction{}
-		return tx, tx.finish, nil
+		sess.mu.Lock()
+		tx, ok := sess.transactions[string(sel.Id)]
+		sess.mu.Unlock()
+		if !ok {
+			return nil, nil, fmt.Errorf("no transaction with id %q", sel.Id)
+		}
+		return tx, func() {}, nil
 	}
 }
 
 func (s *server) ExecuteSql(ctx context.Context, req *spannerpb.ExecuteSqlRequest) (*spannerpb.ResultSet, error) {
-	return nil, status.Errorf(codes.Unimplemented, "ExecuteSql not implemented yet")
+	// Assume this is probably a DML statement. Queries tend to use ExecuteStreamingSql.
+	// TODO: Expand this to support more things.
+
+	obj, ok := req.Transaction.Selector.(*spannerpb.TransactionSelector_Id)
+	if !ok {
+		return nil, fmt.Errorf("unsupported transaction type %T", req.Transaction.Selector)
+	}
+	tid := string(obj.Id)
+	_ = tid // TODO: lookup an existing transaction by ID.
+
+	stmt, err := spansql.ParseDMLStmt(req.Sql)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "bad DML: %v", err)
+	}
+	params, err := parseQueryParams(req.GetParams())
+	if err != nil {
+		return nil, err
+	}
+
+	s.logf("Executing: %s", stmt.SQL())
+	if len(params) > 0 {
+		s.logf("        ▹ %v", params)
+	}
+
+	n, err := s.db.Execute(stmt, params)
+	if err != nil {
+		return nil, err
+	}
+	return &spannerpb.ResultSet{
+		Stats: &spannerpb.ResultSetStats{
+			RowCount: &spannerpb.ResultSetStats_RowCountExact{int64(n)},
+		},
+	}, nil
 }
 
 func (s *server) ExecuteStreamingSql(req *spannerpb.ExecuteSqlRequest, stream spannerpb.Spanner_ExecuteStreamingSqlServer) error {
@@ -465,19 +485,9 @@ func (s *server) ExecuteStreamingSql(req *spannerpb.ExecuteSqlRequest, stream sp
 		return status.Errorf(codes.InvalidArgument, "bad query: %v", err)
 	}
 
-	params := make(queryParams)
-	for k, v := range req.GetParams().GetFields() {
-		switch v := v.Kind.(type) {
-		default:
-			return fmt.Errorf("unsupported well-known type value kind %T", v)
-		case *structpb.Value_NullValue:
-			params[k] = nil
-		case *structpb.Value_NumberValue:
-			params[k] = v.NumberValue
-		case *structpb.Value_StringValue:
-			params[k] = v.StringValue
-		}
-
+	params, err := parseQueryParams(req.GetParams())
+	if err != nil {
+		return err
 	}
 
 	s.logf("Querying: %s", q.SQL())
@@ -503,7 +513,8 @@ func (s *server) StreamingRead(req *spannerpb.ReadRequest, stream spannerpb.Span
 
 	// Bail out if various advanced features are being used.
 	if req.Index != "" {
-		return fmt.Errorf("index reads (%q) not supported", req.Index)
+		// This is okay; we can still return results.
+		s.logf("Warning: index reads (%q) not supported", req.Index)
 	}
 	if len(req.ResumeToken) > 0 {
 		// This should only happen if we send resume_token ourselves.
@@ -513,18 +524,13 @@ func (s *server) StreamingRead(req *spannerpb.ReadRequest, stream spannerpb.Span
 		return fmt.Errorf("partition restrictions not supported")
 	}
 
-	// TODO: other KeySet types.
-	if len(req.KeySet.Ranges) > 0 {
-		return fmt.Errorf("reading with ranges not supported")
-	}
-
-	var ri *resultIter
+	var ri rowIter
 	if req.KeySet.All {
 		s.logf("Reading all from %s (cols: %v)", req.Table, req.Columns)
 		ri, err = s.db.ReadAll(req.Table, req.Columns, req.Limit)
 	} else {
-		s.logf("Reading %d rows from from %s (cols: %v)", len(req.KeySet.Keys), req.Table, req.Columns)
-		ri, err = s.db.Read(req.Table, req.Columns, req.KeySet.Keys, req.Limit)
+		s.logf("Reading rows from %d keys and %d ranges from %s (cols: %v)", len(req.KeySet.Keys), len(req.KeySet.Ranges), req.Table, req.Columns)
+		ri, err = s.db.Read(req.Table, req.Columns, req.KeySet.Keys, makeKeyRangeList(req.KeySet.Ranges), req.Limit)
 	}
 	if err != nil {
 		return err
@@ -537,13 +543,13 @@ func (s *server) StreamingRead(req *spannerpb.ReadRequest, stream spannerpb.Span
 	return s.readStream(stream.Context(), tx, stream.Send, ri)
 }
 
-func (s *server) readStream(ctx context.Context, tx *transaction, send func(*spannerpb.PartialResultSet) error, ri *resultIter) error {
+func (s *server) readStream(ctx context.Context, tx *transaction, send func(*spannerpb.PartialResultSet) error, ri rowIter) error {
 	// Build the result set metadata.
 	rsm := &spannerpb.ResultSetMetadata{
 		RowType: &spannerpb.StructType{},
 		// TODO: transaction info?
 	}
-	for _, ci := range ri.Cols {
+	for _, ci := range ri.Cols() {
 		st, err := spannerTypeFromType(ci.Type)
 		if err != nil {
 			return err
@@ -555,9 +561,11 @@ func (s *server) readStream(ctx context.Context, tx *transaction, send func(*spa
 	}
 
 	for {
-		row, ok := ri.Next()
-		if !ok {
+		row, err := ri.Next()
+		if err == io.EOF {
 			break
+		} else if err != nil {
+			return err
 		}
 
 		values := make([]*structpb.Value, len(row))
@@ -596,17 +604,25 @@ func (s *server) BeginTransaction(ctx context.Context, req *spannerpb.BeginTrans
 	}
 
 	id := genRandomTransaction()
-	tx := &transaction{}
+	tx := s.db.NewTransaction()
 
 	sess.mu.Lock()
 	sess.lastUse = time.Now()
 	sess.transactions[id] = tx
 	sess.mu.Unlock()
 
-	return &spannerpb.Transaction{Id: []byte(id)}, nil
+	tr := &spannerpb.Transaction{Id: []byte(id)}
+
+	if req.GetOptions().GetReadOnly().GetReturnReadTimestamp() {
+		// Return the last commit timestamp.
+		// This isn't wholly accurate, but may be good enough for simple use cases.
+		tr.ReadTimestamp = timestampProto(s.db.LastCommitTimestamp())
+	}
+
+	return tr, nil
 }
 
-func (s *server) Commit(ctx context.Context, req *spannerpb.CommitRequest) (*spannerpb.CommitResponse, error) {
+func (s *server) Commit(ctx context.Context, req *spannerpb.CommitRequest) (resp *spannerpb.CommitResponse, err error) {
 	//s.logf("Commit(%q, %q)", req.Session, req.Transaction)
 
 	obj, ok := req.Transaction.(*spannerpb.CommitRequest_TransactionId)
@@ -615,11 +631,16 @@ func (s *server) Commit(ctx context.Context, req *spannerpb.CommitRequest) (*spa
 	}
 	tid := string(obj.TransactionId)
 
-	tx, cleanup, err := s.popTx(req.Session, tid)
+	tx, err := s.popTx(req.Session, tid)
 	if err != nil {
 		return nil, err
 	}
-	defer cleanup()
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		}
+	}()
+	tx.Start()
 
 	for _, m := range req.Mutations {
 		switch op := m.Operation.(type) {
@@ -627,19 +648,19 @@ func (s *server) Commit(ctx context.Context, req *spannerpb.CommitRequest) (*spa
 			return nil, fmt.Errorf("unsupported mutation operation type %T", op)
 		case *spannerpb.Mutation_Insert:
 			ins := op.Insert
-			err := s.db.Insert(ins.Table, ins.Columns, ins.Values)
+			err := s.db.Insert(tx, ins.Table, ins.Columns, ins.Values)
 			if err != nil {
 				return nil, err
 			}
 		case *spannerpb.Mutation_Update:
 			up := op.Update
-			err := s.db.Update(up.Table, up.Columns, up.Values)
+			err := s.db.Update(tx, up.Table, up.Columns, up.Values)
 			if err != nil {
 				return nil, err
 			}
 		case *spannerpb.Mutation_InsertOrUpdate:
 			iou := op.InsertOrUpdate
-			err := s.db.InsertOrUpdate(iou.Table, iou.Columns, iou.Values)
+			err := s.db.InsertOrUpdate(tx, iou.Table, iou.Columns, iou.Values)
 			if err != nil {
 				return nil, err
 			}
@@ -647,7 +668,7 @@ func (s *server) Commit(ctx context.Context, req *spannerpb.CommitRequest) (*spa
 			del := op.Delete
 			ks := del.KeySet
 
-			err := s.db.Delete(del.Table, ks.Keys, makeKeyRangeList(ks.Ranges), ks.All)
+			err := s.db.Delete(tx, del.Table, ks.Keys, makeKeyRangeList(ks.Ranges), ks.All)
 			if err != nil {
 				return nil, err
 			}
@@ -655,31 +676,47 @@ func (s *server) Commit(ctx context.Context, req *spannerpb.CommitRequest) (*spa
 
 	}
 
-	if err := tx.Commit(); err != nil {
+	ts, err := tx.Commit()
+	if err != nil {
 		return nil, err
 	}
 
-	// TODO: return timestamp?
-	return &spannerpb.CommitResponse{}, nil
+	return &spannerpb.CommitResponse{
+		CommitTimestamp: timestampProto(ts),
+	}, nil
 }
 
 func (s *server) Rollback(ctx context.Context, req *spannerpb.RollbackRequest) (*emptypb.Empty, error) {
 	s.logf("Rollback(%v)", req)
 
-	tx, cleanup, err := s.popTx(req.Session, string(req.TransactionId))
+	tx, err := s.popTx(req.Session, string(req.TransactionId))
 	if err != nil {
 		return nil, err
 	}
-	defer cleanup()
 
-	if err := tx.Rollback(); err != nil {
-		return nil, err
-	}
+	tx.Rollback()
 
 	return &emptypb.Empty{}, nil
 }
 
 // TODO: PartitionQuery, PartitionRead
+
+func parseQueryParams(p *structpb.Struct) (queryParams, error) {
+	params := make(queryParams)
+	for k, v := range p.GetFields() {
+		switch v := v.Kind.(type) {
+		default:
+			return nil, fmt.Errorf("unsupported well-known type value kind %T", v)
+		case *structpb.Value_NullValue:
+			params[k] = nil
+		case *structpb.Value_NumberValue:
+			params[k] = v.NumberValue
+		case *structpb.Value_StringValue:
+			params[k] = v.StringValue
+		}
+	}
+	return params, nil
+}
 
 func spannerTypeFromType(typ spansql.Type) (*spannerpb.Type, error) {
 	var code spannerpb.TypeCode
@@ -698,6 +735,8 @@ func spannerTypeFromType(typ spansql.Type) (*spannerpb.Type, error) {
 		code = spannerpb.TypeCode_BYTES
 	case spansql.Date:
 		code = spannerpb.TypeCode_DATE
+	case spansql.Timestamp:
+		code = spannerpb.TypeCode_TIMESTAMP
 	}
 	st := &spannerpb.Type{Code: code}
 	if typ.Array {

@@ -28,16 +28,17 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	"sigs.k8s.io/controller-runtime/pkg/envtest/printer"
+	"sigs.k8s.io/controller-runtime/pkg/internal/testing/integration/addr"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
-	"sigs.k8s.io/testing_frameworks/integration/addr"
 )
 
 func TestBuilder(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecsWithDefaultAndCustomReporters(t, "application Suite", []Reporter{envtest.NewlineReporter{}})
+	RunSpecsWithDefaultAndCustomReporters(t, "application Suite", []Reporter{printer.NewlineReporter{}})
 }
 
 var testenv *envtest.Environment
@@ -80,7 +81,7 @@ func addCRDToEnvironment(env *envtest.Environment, gvks ...schema.GroupVersionKi
 		plural, singular := meta.UnsafeGuessKindToResource(gvk)
 		crd := &apiextensionsv1beta1.CustomResourceDefinition{
 			TypeMeta: metav1.TypeMeta{
-				APIVersion: "apiextensions.k8s.io",
+				APIVersion: "apiextensions.k8s.io/v1beta1",
 				Kind:       "CustomResourceDefinition",
 			},
 			ObjectMeta: metav1.ObjectMeta{

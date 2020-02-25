@@ -66,9 +66,8 @@ func (s mappedRange) URI() span.URI {
 }
 
 // getParsedFile is a convenience function that extracts the Package and ParseGoHandle for a File in a Snapshot.
-// selectPackage is typically Narrowest/WidestCheckPackageHandle below.
-func getParsedFile(ctx context.Context, snapshot Snapshot, f File, selectPackage PackagePolicy) (Package, ParseGoHandle, error) {
-	fh := snapshot.Handle(ctx, f)
+// selectPackage is typically Narrowest/WidestPackageHandle below.
+func getParsedFile(ctx context.Context, snapshot Snapshot, fh FileHandle, selectPackage PackagePolicy) (Package, ParseGoHandle, error) {
 	phs, err := snapshot.PackageHandles(ctx, fh)
 	if err != nil {
 		return nil, nil, err
@@ -81,20 +80,20 @@ func getParsedFile(ctx context.Context, snapshot Snapshot, f File, selectPackage
 	if err != nil {
 		return nil, nil, err
 	}
-	pgh, err := pkg.File(f.URI())
+	pgh, err := pkg.File(fh.Identity().URI)
 	return pkg, pgh, err
 }
 
 type PackagePolicy func([]PackageHandle) (PackageHandle, error)
 
-// NarrowestCheckPackageHandle picks the "narrowest" package for a given file.
+// NarrowestPackageHandle picks the "narrowest" package for a given file.
 //
 // By "narrowest" package, we mean the package with the fewest number of files
 // that includes the given file. This solves the problem of test variants,
 // as the test will have more files than the non-test package.
-func NarrowestCheckPackageHandle(handles []PackageHandle) (PackageHandle, error) {
+func NarrowestPackageHandle(handles []PackageHandle) (PackageHandle, error) {
 	if len(handles) < 1 {
-		return nil, errors.Errorf("no CheckPackageHandles")
+		return nil, errors.Errorf("no PackageHandles")
 	}
 	result := handles[0]
 	for _, handle := range handles[1:] {
@@ -103,18 +102,18 @@ func NarrowestCheckPackageHandle(handles []PackageHandle) (PackageHandle, error)
 		}
 	}
 	if result == nil {
-		return nil, errors.Errorf("nil CheckPackageHandles have been returned")
+		return nil, errors.Errorf("nil PackageHandles have been returned")
 	}
 	return result, nil
 }
 
-// WidestCheckPackageHandle returns the CheckPackageHandle containing the most files.
+// WidestPackageHandle returns the PackageHandle containing the most files.
 //
 // This is useful for something like diagnostics, where we'd prefer to offer diagnostics
 // for as many files as possible.
-func WidestCheckPackageHandle(handles []PackageHandle) (PackageHandle, error) {
+func WidestPackageHandle(handles []PackageHandle) (PackageHandle, error) {
 	if len(handles) < 1 {
-		return nil, errors.Errorf("no CheckPackageHandles")
+		return nil, errors.Errorf("no PackageHandles")
 	}
 	result := handles[0]
 	for _, handle := range handles[1:] {
@@ -123,7 +122,7 @@ func WidestCheckPackageHandle(handles []PackageHandle) (PackageHandle, error) {
 		}
 	}
 	if result == nil {
-		return nil, errors.Errorf("nil CheckPackageHandles have been returned")
+		return nil, errors.Errorf("nil PackageHandles have been returned")
 	}
 	return result, nil
 }
@@ -142,17 +141,17 @@ func SpecificPackageHandle(desiredID string) PackagePolicy {
 	}
 }
 
-func IsGenerated(ctx context.Context, view View, uri span.URI) bool {
-	f, err := view.GetFile(ctx, uri)
+func IsGenerated(ctx context.Context, snapshot Snapshot, uri span.URI) bool {
+	fh, err := snapshot.GetFile(uri)
 	if err != nil {
 		return false
 	}
-	ph := view.Session().Cache().ParseGoHandle(view.Snapshot().Handle(ctx, f), ParseHeader)
-	parsed, _, _, err := ph.Parse(ctx)
+	ph := snapshot.View().Session().Cache().ParseGoHandle(fh, ParseHeader)
+	parsed, _, _, _, err := ph.Parse(ctx)
 	if err != nil {
 		return false
 	}
-	tok := view.Session().Cache().FileSet().File(parsed.Pos())
+	tok := snapshot.View().Session().Cache().FileSet().File(parsed.Pos())
 	if tok == nil {
 		return false
 	}
@@ -169,8 +168,8 @@ func IsGenerated(ctx context.Context, view View, uri span.URI) bool {
 	return false
 }
 
-func nodeToProtocolRange(ctx context.Context, view View, m *protocol.ColumnMapper, n ast.Node) (protocol.Range, error) {
-	mrng, err := nodeToMappedRange(view, m, n)
+func nodeToProtocolRange(view View, pkg Package, n ast.Node) (protocol.Range, error) {
+	mrng, err := posToMappedRange(view, pkg, n.Pos(), n.End())
 	if err != nil {
 		return protocol.Range{}, err
 	}
@@ -200,27 +199,19 @@ func nameToMappedRange(v View, pkg Package, pos token.Pos, name string) (mappedR
 	return posToMappedRange(v, pkg, pos, pos+token.Pos(len(name)))
 }
 
-func nodeToMappedRange(view View, m *protocol.ColumnMapper, n ast.Node) (mappedRange, error) {
-	return posToRange(view, m, n.Pos(), n.End())
-}
-
 func posToMappedRange(v View, pkg Package, pos, end token.Pos) (mappedRange, error) {
 	logicalFilename := v.Session().Cache().FileSet().File(pos).Position(pos).Filename
-	m, err := v.FindMapperInPackage(pkg, span.FileURI(logicalFilename))
+	m, err := findMapperInPackage(v, pkg, span.URIFromPath(logicalFilename))
 	if err != nil {
 		return mappedRange{}, err
 	}
-	return posToRange(v, m, pos, end)
-}
-
-func posToRange(view View, m *protocol.ColumnMapper, pos, end token.Pos) (mappedRange, error) {
 	if !pos.IsValid() {
 		return mappedRange{}, errors.Errorf("invalid position for %v", pos)
 	}
 	if !end.IsValid() {
 		return mappedRange{}, errors.Errorf("invalid position for %v", end)
 	}
-	return newMappedRange(view.Session().Cache().FileSet(), m, pos, end), nil
+	return newMappedRange(v.Session().Cache().FileSet(), m, pos, end), nil
 }
 
 // Matches cgo generated comment as well as the proposed standard:
@@ -272,22 +263,13 @@ func nodeAtPos(nodes []ast.Node, pos token.Pos) (ast.Node, int) {
 }
 
 // indexExprAtPos returns the index of the expression containing pos.
-func indexExprAtPos(pos token.Pos, args []ast.Expr) int {
+func exprAtPos(pos token.Pos, args []ast.Expr) int {
 	for i, expr := range args {
 		if expr.Pos() <= pos && pos <= expr.End() {
 			return i
 		}
 	}
 	return len(args)
-}
-
-func exprAtPos(pos token.Pos, args []ast.Expr) ast.Expr {
-	for _, expr := range args {
-		if expr.Pos() <= pos && pos <= expr.End() {
-			return expr
-		}
-	}
-	return nil
 }
 
 // fieldSelections returns the set of fields that can
@@ -322,6 +304,12 @@ func fieldSelections(T types.Type) (fields []*types.Var) {
 
 // typeIsValid reports whether typ doesn't contain any Invalid types.
 func typeIsValid(typ types.Type) bool {
+	// Check named types separately, because we don't want
+	// to call Underlying() on them to avoid problems with recursive types.
+	if _, ok := typ.(*types.Named); ok {
+		return true
+	}
+
 	switch typ := typ.Underlying().(type) {
 	case *types.Basic:
 		return typ.Kind() != types.Invalid
@@ -344,8 +332,8 @@ func typeIsValid(typ types.Type) bool {
 			}
 		}
 		return true
-	case *types.Struct, *types.Interface, *types.Named:
-		// Don't bother checking structs, interfaces, or named types for validity.
+	case *types.Struct, *types.Interface:
+		// Don't bother checking structs, interfaces for validity.
 		return true
 	default:
 		return false
@@ -388,6 +376,11 @@ func isPointer(T types.Type) bool {
 	return ok
 }
 
+func isVar(obj types.Object) bool {
+	_, ok := obj.(*types.Var)
+	return ok
+}
+
 // deref returns a pointer's element type, traversing as many levels as needed.
 // Otherwise it returns typ.
 func deref(typ types.Type) types.Type {
@@ -422,6 +415,23 @@ func isUntyped(T types.Type) bool {
 	return false
 }
 
+func isPkgName(obj types.Object) bool {
+	_, ok := obj.(*types.PkgName)
+	return ok
+}
+
+func isASTFile(n ast.Node) bool {
+	_, ok := n.(*ast.File)
+	return ok
+}
+
+func deslice(T types.Type) types.Type {
+	if slice, ok := T.Underlying().(*types.Slice); ok {
+		return slice.Elem()
+	}
+	return nil
+}
+
 // isSelector returns the enclosing *ast.SelectorExpr when pos is in the
 // selector.
 func enclosingSelector(path []ast.Node, pos token.Pos) *ast.SelectorExpr {
@@ -436,6 +446,16 @@ func enclosingSelector(path []ast.Node, pos token.Pos) *ast.SelectorExpr {
 	if _, ok := path[0].(*ast.Ident); ok && len(path) > 1 {
 		if sel, ok := path[1].(*ast.SelectorExpr); ok && pos >= sel.Sel.Pos() {
 			return sel
+		}
+	}
+
+	return nil
+}
+
+func enclosingValueSpec(path []ast.Node, pos token.Pos) *ast.ValueSpec {
+	for _, n := range path {
+		if vs, ok := n.(*ast.ValueSpec); ok {
+			return vs
 		}
 	}
 
@@ -474,11 +494,11 @@ func fieldsAccessible(s *types.Struct, p *types.Package) bool {
 	return false
 }
 
-func formatParams(s Snapshot, pkg Package, sig *types.Signature, qf types.Qualifier) []string {
+func formatParams(ctx context.Context, s Snapshot, pkg Package, sig *types.Signature, qf types.Qualifier) []string {
 	params := make([]string, 0, sig.Params().Len())
 	for i := 0; i < sig.Params().Len(); i++ {
 		el := sig.Params().At(i)
-		typ, err := formatFieldType(s, pkg, el, qf)
+		typ, err := formatFieldType(ctx, s, pkg, el, qf)
 		if err != nil {
 			typ = types.TypeString(el.Type(), qf)
 		}
@@ -497,12 +517,12 @@ func formatParams(s Snapshot, pkg Package, sig *types.Signature, qf types.Qualif
 	return params
 }
 
-func formatFieldType(s Snapshot, srcpkg Package, obj types.Object, qf types.Qualifier) (string, error) {
-	file, pkg, err := s.View().FindPosInPackage(srcpkg, obj.Pos())
+func formatFieldType(ctx context.Context, s Snapshot, srcpkg Package, obj types.Object, qf types.Qualifier) (string, error) {
+	file, pkg, err := findPosInPackage(s.View(), srcpkg, obj.Pos())
 	if err != nil {
 		return "", err
 	}
-	ident, err := findIdentifier(s, pkg, file, obj.Pos())
+	ident, err := findIdentifier(ctx, s, pkg, file, obj.Pos())
 	if err != nil {
 		return "", err
 	}
@@ -606,6 +626,9 @@ func CompareDiagnostic(a, b Diagnostic) int {
 	if r := protocol.CompareRange(a.Range, b.Range); r != 0 {
 		return r
 	}
+	if a.Source < b.Source {
+		return -1
+	}
 	if a.Message < b.Message {
 		return -1
 	}
@@ -613,4 +636,86 @@ func CompareDiagnostic(a, b Diagnostic) int {
 		return 0
 	}
 	return 1
+}
+
+func findPosInPackage(v View, searchpkg Package, pos token.Pos) (*ast.File, Package, error) {
+	tok := v.Session().Cache().FileSet().File(pos)
+	if tok == nil {
+		return nil, nil, errors.Errorf("no file for pos in package %s", searchpkg.ID())
+	}
+	uri := span.URIFromPath(tok.Name())
+
+	var (
+		ph  ParseGoHandle
+		pkg Package
+		err error
+	)
+	// Special case for ignored files.
+	if v.Ignore(uri) {
+		ph, err = findIgnoredFile(v, uri)
+	} else {
+		ph, pkg, err = FindFileInPackage(searchpkg, uri)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	file, _, _, _, err := ph.Cached()
+	if err != nil {
+		return nil, nil, err
+	}
+	if !(file.Pos() <= pos && pos <= file.End()) {
+		return nil, nil, fmt.Errorf("pos %v, apparently in file %q, is not between %v and %v", pos, ph.File().Identity().URI, file.Pos(), file.End())
+	}
+	return file, pkg, nil
+}
+
+func findMapperInPackage(v View, searchpkg Package, uri span.URI) (*protocol.ColumnMapper, error) {
+	var (
+		ph  ParseGoHandle
+		err error
+	)
+	// Special case for ignored files.
+	if v.Ignore(uri) {
+		ph, err = findIgnoredFile(v, uri)
+	} else {
+		ph, _, err = FindFileInPackage(searchpkg, uri)
+	}
+	if err != nil {
+		return nil, err
+	}
+	_, _, m, _, err := ph.Cached()
+	if err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func findIgnoredFile(v View, uri span.URI) (ParseGoHandle, error) {
+	fh, err := v.Snapshot().GetFile(uri)
+	if err != nil {
+		return nil, err
+	}
+	return v.Session().Cache().ParseGoHandle(fh, ParseFull), nil
+}
+
+// FindFileInPackage finds uri in pkg or its dependencies.
+func FindFileInPackage(pkg Package, uri span.URI) (ParseGoHandle, Package, error) {
+	queue := []Package{pkg}
+	seen := make(map[string]bool)
+
+	for len(queue) > 0 {
+		pkg := queue[0]
+		queue = queue[1:]
+		seen[pkg.ID()] = true
+
+		if f, err := pkg.File(uri); err == nil {
+			return f, pkg, nil
+		}
+		for _, dep := range pkg.Imports() {
+			if !seen[dep.ID()] {
+				queue = append(queue, dep)
+			}
+		}
+	}
+	return nil, nil, errors.Errorf("no file for %s in package %s", uri, pkg.ID())
 }

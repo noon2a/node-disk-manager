@@ -1,3 +1,7 @@
+// Copyright 2019 The Go Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package cache
 
 import (
@@ -15,6 +19,7 @@ import (
 	"golang.org/x/tools/internal/lsp/telemetry"
 	"golang.org/x/tools/internal/memoize"
 	"golang.org/x/tools/internal/telemetry/log"
+	"golang.org/x/tools/internal/telemetry/tag"
 	errors "golang.org/x/xerrors"
 )
 
@@ -22,7 +27,7 @@ func (s *snapshot) Analyze(ctx context.Context, id string, analyzers []*analysis
 	var roots []*actionHandle
 
 	for _, a := range analyzers {
-		ah, err := s.actionHandle(ctx, packageID(id), source.ParseFull, a)
+		ah, err := s.actionHandle(ctx, packageID(id), a)
 		if err != nil {
 			return nil, err
 		}
@@ -44,6 +49,8 @@ func (s *snapshot) Analyze(ctx context.Context, id string, analyzers []*analysis
 	}
 	return results, nil
 }
+
+type actionHandleKey string
 
 // An action represents one unit of analysis work: the application of
 // one analysis to one package. Actions form a DAG, both within a
@@ -74,17 +81,17 @@ type packageFactKey struct {
 	typ reflect.Type
 }
 
-func (s *snapshot) actionHandle(ctx context.Context, id packageID, mode source.ParseMode, a *analysis.Analyzer) (*actionHandle, error) {
-	act := s.getActionHandle(id, mode, a)
+func (s *snapshot) actionHandle(ctx context.Context, id packageID, a *analysis.Analyzer) (*actionHandle, error) {
+	ph := s.getPackage(id, source.ParseFull)
+	if ph == nil {
+		return nil, errors.Errorf("no PackageHandle for %s", id)
+	}
+	act := s.getActionHandle(id, ph.mode, a)
 	if act != nil {
 		return act, nil
 	}
-	ph := s.getPackage(id, mode)
-	if ph == nil {
-		return nil, errors.Errorf("no CheckPackageHandle for %s:%v", id, mode == source.ParseExported)
-	}
 	if len(ph.key) == 0 {
-		return nil, errors.Errorf("no key for CheckPackageHandle %s", id)
+		return nil, errors.Errorf("no key for PackageHandle %s", id)
 	}
 	pkg, err := ph.check(ctx)
 	if err != nil {
@@ -97,7 +104,7 @@ func (s *snapshot) actionHandle(ctx context.Context, id packageID, mode source.P
 	var deps []*actionHandle
 	// Add a dependency on each required analyzers.
 	for _, req := range a.Requires {
-		reqActionHandle, err := s.actionHandle(ctx, id, mode, req)
+		reqActionHandle, err := s.actionHandle(ctx, id, req)
 		if err != nil {
 			return nil, err
 		}
@@ -117,7 +124,7 @@ func (s *snapshot) actionHandle(ctx context.Context, id packageID, mode source.P
 			}
 			sort.Strings(importIDs) // for determinism
 			for _, importID := range importIDs {
-				depActionHandle, err := s.actionHandle(ctx, packageID(importID), source.ParseExported, a)
+				depActionHandle, err := s.actionHandle(ctx, packageID(importID), a)
 				if err != nil {
 					return nil, err
 				}
@@ -159,8 +166,8 @@ func (act *actionHandle) analyze(ctx context.Context) ([]*source.Error, interfac
 	return data.diagnostics, data.result, data.err
 }
 
-func buildActionKey(a *analysis.Analyzer, ph *packageHandle) string {
-	return hashContents([]byte(fmt.Sprintf("%p %s", a, string(ph.key))))
+func buildActionKey(a *analysis.Analyzer, ph *packageHandle) actionHandleKey {
+	return actionHandleKey(hashContents([]byte(fmt.Sprintf("%p %s", a, string(ph.key)))))
 }
 
 func (act *actionHandle) String() string {
@@ -202,7 +209,7 @@ func runAnalysis(ctx context.Context, fset *token.FileSet, analyzer *analysis.An
 	defer func() {
 		if r := recover(); r != nil {
 			log.Print(ctx, fmt.Sprintf("analysis panicked: %s", r), telemetry.Package.Of(pkg.PkgPath))
-			data.err = errors.Errorf("analysis %s for package %s panicked: %v", analyzer.Name, pkg.PkgPath())
+			data.err = errors.Errorf("analysis %s for package %s panicked: %v", analyzer.Name, pkg.PkgPath(), r)
 		}
 	}()
 
@@ -315,13 +322,15 @@ func runAnalysis(ctx context.Context, fset *token.FileSet, analyzer *analysis.An
 		return data
 	}
 	data.result, data.err = pass.Analyzer.Run(pass)
-	if data.err == nil {
-		if got, want := reflect.TypeOf(data.result), pass.Analyzer.ResultType; got != want {
-			data.err = errors.Errorf(
-				"internal error: on package %s, analyzer %s returned a result of type %v, but declared ResultType %v",
-				pass.Pkg.Path(), pass.Analyzer, got, want)
-			return data
-		}
+	if data.err != nil {
+		return data
+	}
+
+	if got, want := reflect.TypeOf(data.result), pass.Analyzer.ResultType; got != want {
+		data.err = errors.Errorf(
+			"internal error: on package %s, analyzer %s returned a result of type %v, but declared ResultType %v",
+			pass.Pkg.Path(), pass.Analyzer, got, want)
+		return data
 	}
 
 	// disallow calls after Run
@@ -335,8 +344,8 @@ func runAnalysis(ctx context.Context, fset *token.FileSet, analyzer *analysis.An
 	for _, diag := range diagnostics {
 		srcErr, err := sourceError(ctx, fset, pkg, diag)
 		if err != nil {
-			data.err = err
-			return data
+			log.Error(ctx, "unable to compute analysis error position", err, tag.Of("category", diag.Category), telemetry.Package.Of(pkg.ID()))
+			continue
 		}
 		data.diagnostics = append(data.diagnostics, srcErr)
 	}

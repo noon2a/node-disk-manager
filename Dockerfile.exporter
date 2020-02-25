@@ -1,0 +1,10 @@
+#
+# This Dockerfile builds NDM exporter
+# 
+
+#Set the base image
+FROM ubuntu:16.04
+
+ARG ARCH
+
+ADD bin/${ARCH}/exporter /usr/local/bin/exporter
