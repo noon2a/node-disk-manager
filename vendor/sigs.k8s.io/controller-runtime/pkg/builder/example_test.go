@@ -28,7 +28,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -41,8 +40,6 @@ import (
 //
 // * Start the application.
 func ExampleBuilder() {
-	logf.SetLogger(zap.New())
-
 	var log = logf.Log.WithName("builder-examples")
 
 	mgr, err := manager.New(config.GetConfigOrDie(), manager.Options{})

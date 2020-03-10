@@ -133,9 +133,10 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		{
-			Name:         "Failure event runner on failed with manageStatus == true",
-			GVK:          gvk,
-			ManageStatus: true,
+			Name:            "Failure message reconcile",
+			GVK:             gvk,
+			ReconcilePeriod: 5 * time.Second,
+			ManageStatus:    true,
 			Runner: &fake.Runner{
 				JobEvents: []eventapi.JobEvent{
 					eventapi.JobEvent{
@@ -164,6 +165,9 @@ func TestReconcile(t *testing.T) {
 					"spec":       map[string]interface{}{},
 				},
 			}),
+			Result: reconcile.Result{
+				RequeueAfter: 5 * time.Second,
+			},
 			Request: reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Name:      "reconcile",
@@ -182,12 +186,6 @@ func TestReconcile(t *testing.T) {
 					"status": map[string]interface{}{
 						"conditions": []interface{}{
 							map[string]interface{}{
-								"status":  "False",
-								"type":    "Running",
-								"message": "Running reconciliation",
-								"reason":  "Running",
-							},
-							map[string]interface{}{
 								"status": "True",
 								"type":   "Failure",
 								"ansibleResult": map[string]interface{}{
@@ -200,51 +198,16 @@ func TestReconcile(t *testing.T) {
 								"message": "new failure message",
 								"reason":  "Failed",
 							},
-						},
-					},
-				},
-			},
-			ShouldError: true,
-		},
-		{
-			Name:         "Failure event runner on failed",
-			GVK:          gvk,
-			ManageStatus: false,
-			Runner: &fake.Runner{
-				JobEvents: []eventapi.JobEvent{
-					eventapi.JobEvent{
-						Event:   eventapi.EventRunnerOnFailed,
-						Created: eventapi.EventTime{Time: eventTime},
-						EventData: map[string]interface{}{
-							"res": map[string]interface{}{
-								"msg": "new failure message",
+							map[string]interface{}{
+								"status":  "False",
+								"type":    "Running",
+								"message": "Running reconciliation",
+								"reason":  "Running",
 							},
 						},
 					},
-					eventapi.JobEvent{
-						Event:   eventapi.EventPlaybookOnStats,
-						Created: eventapi.EventTime{Time: eventTime},
-					},
 				},
 			},
-			Client: fakeclient.NewFakeClient(&unstructured.Unstructured{
-				Object: map[string]interface{}{
-					"metadata": map[string]interface{}{
-						"name":      "reconcile",
-						"namespace": "default",
-					},
-					"apiVersion": "operator-sdk/v1beta1",
-					"kind":       "Testing",
-					"spec":       map[string]interface{}{},
-				},
-			}),
-			Request: reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name:      "reconcile",
-					Namespace: "default",
-				},
-			},
-			ShouldError: true,
 		},
 		{
 			Name:            "Finalizer successful reconcile",
@@ -524,7 +487,6 @@ func TestReconcile(t *testing.T) {
 				GVK:             tc.GVK,
 				Runner:          tc.Runner,
 				Client:          tc.Client,
-				APIReader:       tc.Client,
 				EventHandlers:   tc.EventHandlers,
 				ReconcilePeriod: tc.ReconcilePeriod,
 				ManageStatus:    tc.ManageStatus,

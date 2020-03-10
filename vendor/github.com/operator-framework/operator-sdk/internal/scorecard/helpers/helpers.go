@@ -47,7 +47,6 @@ func ResultsPassFail(results []TestResult) (TestResult, error) {
 		}
 		finalResult.Suggestions = append(finalResult.Suggestions, result.Suggestions...)
 		finalResult.Errors = append(finalResult.Errors, result.Errors...)
-		finalResult.Log = result.Log
 	}
 	return finalResult, nil
 }
@@ -74,7 +73,6 @@ func ResultsCumulative(results []TestResult) (TestResult, error) {
 		finalResult.MaximumPoints += result.MaximumPoints
 		finalResult.Suggestions = append(finalResult.Suggestions, result.Suggestions...)
 		finalResult.Errors = append(finalResult.Errors, result.Errors...)
-		finalResult.Log = result.Log
 	}
 	return finalResult, nil
 }
@@ -118,7 +116,6 @@ func TestResultToScorecardTestResult(tr TestResult) scapiv1alpha1.ScorecardTestR
 	sctr.Description = tr.Test.GetDescription()
 	sctr.EarnedPoints = tr.EarnedPoints
 	sctr.MaximumPoints = tr.MaximumPoints
-	sctr.Log = tr.Log
 	sctr.Suggestions = tr.Suggestions
 	if sctr.Suggestions == nil {
 		sctr.Suggestions = []string{}

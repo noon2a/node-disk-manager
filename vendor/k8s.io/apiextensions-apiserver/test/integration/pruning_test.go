@@ -23,8 +23,8 @@ import (
 	"testing"
 	"time"
 
-	"go.etcd.io/etcd/clientv3"
-	"go.etcd.io/etcd/pkg/transport"
+	"github.com/coreos/etcd/clientv3"
+	"github.com/coreos/etcd/pkg/transport"
 	"google.golang.org/grpc"
 
 	"sigs.k8s.io/yaml"
@@ -324,9 +324,9 @@ func TestPruningFromStorage(t *testing.T) {
 		t.Fatal(err)
 	}
 	tlsInfo := transport.TLSInfo{
-		CertFile:      restOptions.StorageConfig.Transport.CertFile,
-		KeyFile:       restOptions.StorageConfig.Transport.KeyFile,
-		TrustedCAFile: restOptions.StorageConfig.Transport.TrustedCAFile,
+		CertFile: restOptions.StorageConfig.Transport.CertFile,
+		KeyFile:  restOptions.StorageConfig.Transport.KeyFile,
+		CAFile:   restOptions.StorageConfig.Transport.CAFile,
 	}
 	tlsConfig, err := tlsInfo.ClientConfig()
 	if err != nil {

@@ -36,9 +36,8 @@ var _ = Describe("recorder.Provider", func() {
 		It("should return an error if failed to init clientSet.", func() {
 			// Invalid the config
 			cfg1 := *cfg
-			cfg1.Host = "invalid host"
+			cfg1.ContentType = "invalid-type"
 			_, err := recorder.NewProvider(&cfg1, scheme.Scheme, tlog.NullLogger{}, record.NewBroadcaster())
-			Expect(err).NotTo(BeNil())
 			Expect(err.Error()).To(ContainSubstring("failed to init clientSet"))
 		})
 	})

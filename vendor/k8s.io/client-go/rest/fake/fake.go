@@ -29,8 +29,6 @@ import (
 	"k8s.io/client-go/util/flowcontrol"
 )
 
-// CreateHTTPClient creates an http.Client that will invoke the provided roundTripper func
-// when a request is made.
 func CreateHTTPClient(roundTripper func(*http.Request) (*http.Response, error)) *http.Client {
 	return &http.Client{
 		Transport: roundTripperFunc(roundTripper),
@@ -43,49 +41,40 @@ func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
 }
 
-// RESTClient provides a fake RESTClient interface. It is used to mock network
-// interactions via a rest.Request, or to make them via the provided Client to
-// a specific server.
+// RESTClient provides a fake RESTClient interface.
 type RESTClient struct {
+	Client               *http.Client
 	NegotiatedSerializer runtime.NegotiatedSerializer
 	GroupVersion         schema.GroupVersion
 	VersionedAPIPath     string
 
-	// Err is returned when any request would be made to the server. If Err is set,
-	// Req will not be recorded, Resp will not be returned, and Client will not be
-	// invoked.
-	Err error
-	// Req is set to the last request that was executed (had the methods Do/DoRaw) invoked.
-	Req *http.Request
-	// If Client is specified, the client will be invoked instead of returning Resp if
-	// Err is not set.
-	Client *http.Client
-	// Resp is returned to the caller after Req is recorded, unless Err or Client are set.
+	Req  *http.Request
 	Resp *http.Response
+	Err  error
 }
 
 func (c *RESTClient) Get() *restclient.Request {
-	return c.Verb("GET")
+	return c.request("GET")
 }
 
 func (c *RESTClient) Put() *restclient.Request {
-	return c.Verb("PUT")
+	return c.request("PUT")
 }
 
 func (c *RESTClient) Patch(pt types.PatchType) *restclient.Request {
-	return c.Verb("PATCH").SetHeader("Content-Type", string(pt))
+	return c.request("PATCH").SetHeader("Content-Type", string(pt))
 }
 
 func (c *RESTClient) Post() *restclient.Request {
-	return c.Verb("POST")
+	return c.request("POST")
 }
 
 func (c *RESTClient) Delete() *restclient.Request {
-	return c.Verb("DELETE")
+	return c.request("DELETE")
 }
 
 func (c *RESTClient) Verb(verb string) *restclient.Request {
-	return c.Request().Verb(verb)
+	return c.request(verb)
 }
 
 func (c *RESTClient) APIVersion() schema.GroupVersion {
@@ -96,17 +85,28 @@ func (c *RESTClient) GetRateLimiter() flowcontrol.RateLimiter {
 	return nil
 }
 
-func (c *RESTClient) Request() *restclient.Request {
-	config := restclient.ClientContentConfig{
-		ContentType:  runtime.ContentTypeJSON,
-		GroupVersion: c.GroupVersion,
-		Negotiator:   runtime.NewClientNegotiator(c.NegotiatedSerializer, c.GroupVersion),
+func (c *RESTClient) request(verb string) *restclient.Request {
+	config := restclient.ContentConfig{
+		ContentType:          runtime.ContentTypeJSON,
+		GroupVersion:         &c.GroupVersion,
+		NegotiatedSerializer: c.NegotiatedSerializer,
 	}
-	return restclient.NewRequestWithClient(&url.URL{Scheme: "https", Host: "localhost"}, c.VersionedAPIPath, config, CreateHTTPClient(c.do))
+
+	ns := c.NegotiatedSerializer
+	info, _ := runtime.SerializerInfoForMediaType(ns.SupportedMediaTypes(), runtime.ContentTypeJSON)
+	serializers := restclient.Serializers{
+		// TODO this was hardcoded before, but it doesn't look right
+		Encoder: ns.EncoderForVersion(info.Serializer, c.GroupVersion),
+		Decoder: ns.DecoderToVersion(info.Serializer, c.GroupVersion),
+	}
+	if info.StreamSerializer != nil {
+		serializers.StreamingSerializer = info.StreamSerializer.Serializer
+		serializers.Framer = info.StreamSerializer.Framer
+	}
+	return restclient.NewRequest(c, verb, &url.URL{Host: "localhost"}, c.VersionedAPIPath, config, serializers, nil, nil, 0)
 }
 
-// do is invoked when a Request() created by this client is executed.
-func (c *RESTClient) do(req *http.Request) (*http.Response, error) {
+func (c *RESTClient) Do(req *http.Request) (*http.Response, error) {
 	if c.Err != nil {
 		return nil, c.Err
 	}

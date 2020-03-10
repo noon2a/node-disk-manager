@@ -2,7 +2,7 @@ FROM registry.access.redhat.com/ubi8/ubi-minimal:latest
 
 ENV OPERATOR=/usr/local/bin/memcached-operator \
     USER_UID=1001 \
-    USER_NAME=memcached-operator
+    USER_NAME=test-framework
 
 # install operator binary
 COPY build/_output/bin/test-framework ${OPERATOR}

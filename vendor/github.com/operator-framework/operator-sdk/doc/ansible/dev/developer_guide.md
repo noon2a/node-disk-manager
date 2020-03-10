@@ -187,13 +187,13 @@ annotations:
 
 Once a developer is comfortable working with the above workflow, it will be
 beneficial to test the logic inside of an operator. To accomplish this, we can
-use `operator-sdk run --local` from the top-level directory of our project. The
-`run --local` command reads from `./watches.yaml` and uses `~/.kube/config` to
+use `operator-sdk up local` from the top-level directory of our project. The
+`up local` command reads from `./watches.yaml` and uses `~/.kube/config` to
 communicate with a Kubernetes cluster just as the `k8s` modules do. This
 section assumes the developer has read the [Ansible Operator user
 guide][ansible_operator_user_guide] and has the proper dependencies installed.
 
-Since `run --local` reads from `./watches.yaml`, there are a couple options
+Since `up local` reads from `./watches.yaml`, there are a couple options
 available to the developer. If `role` is left alone (by default
 `/opt/ansible/roles/<name>`) the developer must copy the role over to
 `/opt/ansible/roles` from the operator directly. This is cumbersome because
@@ -218,9 +218,9 @@ $ kubectl create -f deploy/role.yaml
 $ kubectl create -f deploy/role_binding.yaml
 ```
 
-Run the `run --local` command:
+Run the `up local` command:
 ```bash
-$ operator-sdk run --local
+$ operator-sdk up local
 INFO[0000] Go Version: go1.10.3
 INFO[0000] Go OS/Arch: linux/amd64
 INFO[0000] operator-sdk Version: 0.0.6+git
@@ -364,17 +364,13 @@ status:
     type: Running
 ```
 
-Ansible Operator also allows you as the developer to supply custom
-status values with the `k8s_status` Ansible Module, which is included in
-[operator_sdk util collection](https://galaxy.ansible.com/operator_sdk/util).
-
-This allows the developer to update the `status` from within Ansible
-with any key/value pair as desired. By default, Ansible Operator will
-always include the generic Ansible run output as shown above. If you
-would prefer your application *not* update the status with Ansible
-output and would prefer to track the status manually from your
-application, then simply update the watches file with `manageStatus`:
-
+Ansible Operator also allows you as the developer to supply custom status
+values with the [k8s_status][k8s_status_module] Ansible Module. This allows the
+developer to update the `status` from within Ansible with any key/value pair as
+desired. By default, Ansible Operator will always include the generic Ansible
+run output as shown above. If you would prefer your application *not* update
+the status with Ansible output and would prefer to track the status manually
+from your application, then simply update the watches file with `manageStatus`:
 ```yaml
 - version: v1
   group: api.example.com
@@ -383,35 +379,14 @@ application, then simply update the watches file with `manageStatus`:
   manageStatus: false
 ```
 
-The simplest way to invoke the `k8s_status` module is to
-use its fully qualified collection name (fqcn). To update the
-`status` subresource with key `foo` and value `bar`, `k8s_status` can be
-used as shown:
-
+To update the `status` subresource with key `foo` and value `bar`, `k8s_status`
+can be used as shown:
 ```yaml
-- operator_sdk.util.k8s_status:
+- k8s_status:
     api_version: app.example.com/v1
     kind: Foo
     name: "{{ meta.name }}"
     namespace: "{{ meta.namespace }}"
-    status:
-      foo: bar
-```
-
-Collections can also be declared in the role's `meta/main.yml`, which is
-included for new scaffolded ansible operators.
-
-```yaml
-collections:
-  - operator_sdk.util
-```
-
-Declaring collections in the role meta allows you to invoke the
-`k8s_status` module directly.
-
-```yaml
-- k8s_status:
-    <snip>
     status:
       foo: bar
 ```
@@ -441,19 +416,30 @@ Please look over the following sections for help debugging an Ansible Operator:
 * [Additional Ansible debug](../user-guide.md#additional-ansible-debug)
 * [Testing Ansible Operators with Molecule](testing_guide.md#testing-ansible-operators-with-molecule)
 
-### Using k8s_status Ansible module with `run --local`
+### Using k8s_status Ansible module with `up local`
 This section covers the required steps to using the `k8s_status` Ansible module
-with `operator-sdk run --local`. If you are unfamiliar with managing status from
+with `operator-sdk up local`. If you are unfamiliar with managing status from
 the Ansible Operator, see the [proposal for user-driven status
 management][manage_status_proposal].
 
 If your operator takes advantage of the `k8s_status` Ansible module and you are
-interested in testing the operator with `operator-sdk run --local`, then
-you will need to install the collection locally.
+interested in testing the operator with `operator-sdk up local`, then it is
+imperative that the module is installed in a location that Ansible expects.
+This is done with the `library` configuration option for Ansible. For our
+example, we will assume the user is placing third-party Ansible modules in
+`/usr/share/ansible/library`.
 
-```sh
-$ ansible-galaxy collection install operator_sdk.util
- ```
+To install the `k8s_status` module, first set `ansible.cfg` to search in
+`/usr/share/ansible/library` for installed Ansible modules:
+```bash
+$ echo "library=/usr/share/ansible/library/" >> /etc/ansible/ansible.cfg
+```
+
+Add `k8s_status.py` to `/usr/share/ansible/library/`:
+```bash
+$ wget https://raw.githubusercontent.com/fabianvf/ansible-k8s-status-module/master/k8s_status.py -O /usr/share/ansible/library/k8s_status.py
+```
+
 ## Extra vars sent to Ansible
 The extra vars that are sent to Ansible are managed by the operator. The `spec`
 section will pass along the key-value pairs as extra vars.  This is equivalent
@@ -500,6 +486,7 @@ operator. The `meta` fields can be accesses via dot notation in Ansible as so:
 ```
 
 [k8s_ansible_module]:https://docs.ansible.com/ansible/2.6/modules/k8s_module.html
+[k8s_status_module]:https://github.com/fabianvf/ansible-k8s-status-module
 [openshift_restclient_python]:https://github.com/openshift/openshift-restclient-python
 [ansible_operator_user_guide]:../user-guide.md
 [manage_status_proposal]:../../proposals/ansible-operator-status.md

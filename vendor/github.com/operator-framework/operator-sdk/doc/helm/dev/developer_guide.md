@@ -19,6 +19,9 @@ If you are unfamiliar with Helm, the easiest way to get started is to
 [install Helm][helm_install] and test your charts using the `helm` command line
 tool.
 
+**NOTE:** Installing Helm's Tiller component in your cluster is not required,
+because the Helm operator runs a Tiller component internally.
+
 ### Testing a Helm chart locally
 
 Sometimes it is beneficial for a developer to run the Helm chart installation
@@ -28,9 +31,6 @@ time. To do this, initialize a new project:
 ```sh
 $ operator-sdk new --type helm --kind Foo --api-version foo.example.com/v1alpha1 foo-operator
 INFO[0000] Creating new Helm operator 'foo-operator'.
-INFO[0000] Created helm-charts/foo
-INFO[0000] Generating RBAC rules
-WARN[0000] The RBAC rules generated in deploy/role.yaml are based on the chart's default manifest. Some rules may be missing for resources that are only enabled with custom values, and some existing rules may be overly broad. Double check the rules generated in deploy/role.yaml to ensure they meet the operator's permission requirements.
 INFO[0000] Created build/Dockerfile
 INFO[0000] Created watches.yaml
 INFO[0000] Created deploy/service_account.yaml
@@ -39,6 +39,10 @@ INFO[0000] Created deploy/role_binding.yaml
 INFO[0000] Created deploy/operator.yaml
 INFO[0000] Created deploy/crds/foo.example.com_foos_crd.yaml
 INFO[0000] Created deploy/crds/foo.example.com_v1alpha1_foo_cr.yaml
+INFO[0000] Created helm-charts/foo/
+INFO[0000] Run git init ...
+Initialized empty Git repository in /home/user/go/src/github.com/operator-framework/foo-operator/.git/
+INFO[0000] Run git init done
 INFO[0000] Project creation complete.
 
 $ cd foo-operator
@@ -49,49 +53,7 @@ For this example we will use the default Nginx helm chart scaffolded by
 release manifests are:
 
 ```sh
-$ helm install --dry-run test-release helm-charts/foo
-NAME: test-release
-LAST DEPLOYED: Wed Nov 27 15:41:10 2019
-NAMESPACE: default
-STATUS: pending-install
-REVISION: 1
-HOOKS:
----
-# Source: foo/templates/tests/test-connection.yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: "test-release-foo-test-connection"
-  labels:
-
-    helm.sh/chart: foo-0.1.0
-    app.kubernetes.io/name: foo
-    app.kubernetes.io/instance: test-release
-    app.kubernetes.io/version: "1.16.0"
-    app.kubernetes.io/managed-by: Helm
-  annotations:
-    "helm.sh/hook": test-success
-spec:
-  containers:
-    - name: wget
-      image: busybox
-      command: ['wget']
-      args:  ['test-release-foo:80']
-  restartPolicy: Never
-MANIFEST:
----
-# Source: foo/templates/serviceaccount.yaml
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: test-release-foo
-  labels:
-
-    helm.sh/chart: foo-0.1.0
-    app.kubernetes.io/name: foo
-    app.kubernetes.io/instance: test-release
-    app.kubernetes.io/version: "1.16.0"
-    app.kubernetes.io/managed-by: Helm
+$ helm template --name test-release helm-charts/foo
 ---
 # Source: foo/templates/service.yaml
 apiVersion: v1
@@ -99,11 +61,10 @@ kind: Service
 metadata:
   name: test-release-foo
   labels:
-    helm.sh/chart: foo-0.1.0
     app.kubernetes.io/name: foo
+    helm.sh/chart: foo-0.1.0
     app.kubernetes.io/instance: test-release
-    app.kubernetes.io/version: "1.16.0"
-    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/managed-by: Tiller
 spec:
   type: ClusterIP
   ports:
@@ -114,18 +75,18 @@ spec:
   selector:
     app.kubernetes.io/name: foo
     app.kubernetes.io/instance: test-release
+
 ---
 # Source: foo/templates/deployment.yaml
-apiVersion: apps/v1
+apiVersion: apps/v1beta2
 kind: Deployment
 metadata:
   name: test-release-foo
   labels:
-    helm.sh/chart: foo-0.1.0
     app.kubernetes.io/name: foo
+    helm.sh/chart: foo-0.1.0
     app.kubernetes.io/instance: test-release
-    app.kubernetes.io/version: "1.16.0"
-    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/managed-by: Tiller
 spec:
   replicas: 1
   selector:
@@ -138,14 +99,9 @@ spec:
         app.kubernetes.io/name: foo
         app.kubernetes.io/instance: test-release
     spec:
-      serviceAccountName: test-release-foo
-      securityContext:
-        {}
       containers:
         - name: foo
-          securityContext:
-            {}
-          image: "nginx:1.16.0"
+          image: "nginx:stable"
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -162,27 +118,19 @@ spec:
           resources:
             {}
 
-NOTES:
-1. Get the application URL by running these commands:
-  export POD_NAME=$(kubectl get pods --namespace default -l "app.kubernetes.io/name=foo,app.kubernetes.io/instance=test-release" -o jsonpath="{.items[0].metadata.name}")
-  echo "Visit http://127.0.0.1:8080 to use your application"
-  kubectl --namespace default port-forward $POD_NAME 8080:80
+
+---
+# Source: foo/templates/ingress.yaml
+
 ```
 
-Next, let's go ahead and install the release:
+Next, deploy these resource manifests to your cluster without using
+Tiller:
 
 ```sh
-$ helm install test-release helm-charts/foo
-NAME: test-release
-LAST DEPLOYED: Wed Nov 27 15:43:04 2019
-NAMESPACE: default
-STATUS: deployed
-REVISION: 1
-NOTES:
-1. Get the application URL by running these commands:
-  export POD_NAME=$(kubectl get pods --namespace default -l "app.kubernetes.io/name=foo,app.kubernetes.io/instance=test-release" -o jsonpath="{.items[0].metadata.name}")
-  echo "Visit http://127.0.0.1:8080 to use your application"
-  kubectl --namespace default port-forward $POD_NAME 8080:80
+$ helm template --name test-release helm-charts/foo | kubectl apply -f -
+service/test-release-foo created
+deployment.apps/test-release-foo created
 ```
 
 Check that the release resources were created:
@@ -190,16 +138,16 @@ Check that the release resources were created:
 ```sh
 $ kubectl get all -l app.kubernetes.io/instance=test-release
 NAME                                    READY   STATUS    RESTARTS   AGE
-pod/test-release-foo-76bd6c5f58-vqj7m   1/1     Running   0          36s
+pod/test-release-foo-5554d49986-47676   1/1     Running   0          2m
 
 NAME                       TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)   AGE
-service/test-release-foo   ClusterIP   10.106.222.153   <none>        80/TCP    36s
+service/test-release-foo   ClusterIP   10.100.136.126   <none>        80/TCP    2m
 
-NAME                               READY   UP-TO-DATE   AVAILABLE   AGE
-deployment.apps/test-release-foo   1/1     1            1           36s
+NAME                               DESIRED   CURRENT   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/test-release-foo   1         1         1            1           2m
 
 NAME                                          DESIRED   CURRENT   READY   AGE
-replicaset.apps/test-release-foo-76bd6c5f58   1         1         1       36s
+replicaset.apps/test-release-foo-5554d49986   1         1         1       2m
 ```
 
 Next, let's create a simple values file that we can use to override the Helm
@@ -213,21 +161,13 @@ service:
 EOF
 ```
 
-Now let's upgrade the release to use these new values from `overrides.yaml`:
+Re-run the templates and re-apply them to the cluster, this time using the
+`overrides.yaml` file we just created:
 
 ```sh
-$ helm upgrade -f overrides.yaml test-release helm-charts/foo
-Release "test-release" has been upgraded. Happy Helming!
-NAME: test-release
-LAST DEPLOYED: Wed Nov 27 15:45:15 2019
-NAMESPACE: default
-STATUS: deployed
-REVISION: 2
-NOTES:
-1. Get the application URL by running these commands:
-  export POD_NAME=$(kubectl get pods --namespace default -l "app.kubernetes.io/name=foo,app.kubernetes.io/instance=test-release" -o jsonpath="{.items[0].metadata.name}")
-  echo "Visit http://127.0.0.1:8080 to use your application"
-  kubectl --namespace default port-forward $POD_NAME 8080:80
+$ helm template -f overrides.yaml --name test-release helm-charts/foo | kubectl apply -f -
+service/test-release-foo configured
+deployment.apps/test-release-foo configured
 ```
 
 Now you'll see that there are 2 deployment replicas and the service port
@@ -235,26 +175,27 @@ has been updated to `8080`.
 
 ```sh
 $ kubectl get deployment -l app.kubernetes.io/instance=test-release
-NAME               READY   UP-TO-DATE   AVAILABLE   AGE
-test-release-foo   2/2     2            2           2m58s
+NAME               DESIRED   CURRENT   UP-TO-DATE   AVAILABLE   AGE
+test-release-foo   2         2         2            2           3m
 
 $ kubectl get service -l app.kubernetes.io/instance=test-release
-NAME               TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)    AGE
-test-release-foo   ClusterIP   10.106.222.153   <none>        8080/TCP   2m59s
+NAME               TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)     AGE
+test-release-foo   ClusterIP   10.100.136.126   <none>        8080/TCP    3m
 ```
 
-Lastly, uninstall the release:
+Lastly, delete the release:
 
 ```sh
-$ helm uninstall test-release
-release "test-release" uninstalled
+$ helm template -f overrides.yaml --name test-release helm-charts/foo | kubectl delete -f -
+service "test-release-foo" deleted
+deployment.apps "test-release-foo" deleted
 ```
 
 Check that the resources were deleted:
 
 ```sh
 $ kubectl get all -l app.kubernetes.io/instance=test-release
-No resources found in default namespace.
+No resources found.
 ```
 
 ## Using Helm inside of an Operator
@@ -320,9 +261,9 @@ being released by the operator.
 
 Once a developer is comfortable working with the above workflow, it will be
 beneficial to test the logic inside of an operator. To accomplish this, we can
-use `operator-sdk run --local` from the top-level directory of our project. The
-`run --local` command reads from `./watches.yaml` and uses `~/.kube/config` to
-communicate with a Kubernetes cluster just as the `helm` CLI commands did
+use `operator-sdk up local` from the top-level directory of our project. The
+`up local` command reads from `./watches.yaml` and uses `~/.kube/config` to
+communicate with a Kubernetes cluster just as the `kubectl apply` commands did
 when we were testing our Helm chart locally. This section assumes the developer
 has read the [Helm Operator user guide][helm_operator_user_guide] and has the
 proper dependencies installed.
@@ -334,12 +275,12 @@ inside of the `deploy` folder:
 kubectl create -f deploy/crds/foo.example.com_foos_crd.yaml
 ```
 
-**NOTE:** When running the Helm operator locally, the `run --local` command will default to using the kubeconfig file specified by `$KUBECONFIG` with a fallback to `$HOME/.kube/config` if not set. In this case, the autogenerated RBAC definitions do not need to be applied to the cluster.
+**NOTE:** When running the Helm operator locally, the `up local` command will default to using the kubeconfig file specified by `$KUBECONFIG` with a fallback to `$HOME/.kube/config` if not set. In this case, the autogenerated RBAC definitions do not need to be applied to the cluster.
 
-Run the `run --local` command:
+Run the `up local` command:
 
 ```sh
-$ operator-sdk run --local
+$ operator-sdk up local
 INFO[0000] Running the operator locally.
 INFO[0000] Go Version: go1.10.3
 INFO[0000] Go OS/Arch: linux/amd64
@@ -350,49 +291,24 @@ INFO[0000] operator-sdk Version: v0.2.0+git
 
 Now that the operator is watching resource `Foo` for events, the creation of a
 Custom Resource will trigger our Helm chart to be executed. Take a look at
-`deploy/crds/foo.example.com_v1alpha1_foo_cr.yaml`. The `spec` was generated
-from the chart's default `values.yaml` file, so creating this CR will result
-in the chart's default manifest being installed.
+`deploy/crds/foo.example.com_v1alpha1_foo_cr.yaml`. Our chart does not have a `size` value,
+so let's remove it. Your CR file should look like the following:
 
 ```yaml
-apiVersion: foo.example.com/v1alpha1
-kind: Foo
+apiVersion: "foo.example.com/v1alpha1"
+kind: "Foo"
 metadata:
-  name: example-foo
+  name: "example-foo"
 spec:
-  # Default values copied from <project_dir>/helm-charts/foo/values.yaml
-
-  affinity: {}
-  fullnameOverride: ""
-  image:
-    pullPolicy: IfNotPresent
-    repository: nginx
-  imagePullSecrets: []
-  ingress:
-    annotations: {}
-    enabled: false
-    hosts:
-    - host: chart-example.local
-      paths: []
-    tls: []
-  nameOverride: ""
-  nodeSelector: {}
-  podSecurityContext: {}
-  replicaCount: 1
-  resources: {}
-  securityContext: {}
-  service:
-    port: 80
-    type: ClusterIP
-  serviceAccount:
-    create: true
-    name: null
-  tolerations: []
-
+  # Add fields here
 ```
 
+Since `spec` is not set, Helm is invoked with no extra variables. The next
+section covers how extra variables are passed from a Custom Resource to
+Helm. This is why it is important to set sane defaults for the operator.
 
-Create a Custom Resource instance of Foo using these default values:
+Create a Custom Resource instance of Foo with default var `state` set to
+`present`:
 
 ```sh
 $ kubectl apply -f deploy/crds/foo.example.com_v1alpha1_foo_cr.yaml
@@ -403,26 +319,27 @@ The custom resource status will be updated with the release information if the
 installation succeeds. Let's get the release name:
 
 ```sh
-$ export RELEASE_NAME=$(kubectl get foos example-foo -o jsonpath={..status.deployedRelease.name})
+$ export RELEASE_NAME=$(kubectl get foos example-foo -o jsonpath={..status.release.name})
 $ echo $RELEASE_NAME
-example-foo
+example-foo-4f8ay4vfr99ulx905hax3j6x1
 ```
 
-Note that the release name matches the name of the CR. Next, check that the release resources were created:
+Check that the release resources were created:
 
 ```sh
 $ kubectl get all -l app.kubernetes.io/instance=${RELEASE_NAME}
-NAME                               READY   STATUS    RESTARTS   AGE
-pod/example-foo-69594454bc-mvz2l   1/1     Running   0          2m39s
+NAME                                                        READY   STATUS    RESTARTS   AGE
+pod/example-foo-4f8ay4vfr99ulx905hax3j6x1-9dfd67fc6-s6krb   1/1     Running   0          4m
 
-NAME                  TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)   AGE
-service/example-foo   ClusterIP   10.96.236.249   <none>        80/TCP    2m39s
+NAME                                            TYPE        CLUSTER-IP     EXTERNAL-IP   PORT(S)   AGE
+service/example-foo-4f8ay4vfr99ulx905hax3j6x1   ClusterIP   10.102.91.83   <none>        80/TCP    4m
 
-NAME                          READY   UP-TO-DATE   AVAILABLE   AGE
-deployment.apps/example-foo   1/1     1            1           2m39s
+NAME                                                    DESIRED   CURRENT   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/example-foo-4f8ay4vfr99ulx905hax3j6x1   1         1         1            1           4m
 
-NAME                                     DESIRED   CURRENT   READY   AGE
-replicaset.apps/example-foo-69594454bc   1         1         1       2m39s
+NAME                                                              DESIRED   CURRENT   READY   AGE
+replicaset.apps/example-foo-4f8ay4vfr99ulx905hax3j6x1-9dfd67fc6   1         1         1       4m
+
 ```
 
 Modify `deploy/crds/foo.example.com_v1alpha1_foo_cr.yaml` to set `replicaCount` to `2`:
@@ -433,9 +350,8 @@ kind: "Foo"
 metadata:
   name: "example-foo"
 spec:
-  # ...
+  # Add fields here
   replicaCount: 2
-  # ...
 ```
 
 Apply the changes to Kubernetes and confirm that the deployment has 2 replicas:
@@ -445,19 +361,8 @@ $ kubectl apply -f deploy/crds/foo.example.com_v1alpha1_foo_cr.yaml
 foo.foo.example.com/example-foo configured
 
 $ kubectl get deployment -l app.kubernetes.io/instance=${RELEASE_NAME}
-NAME          READY   UP-TO-DATE   AVAILABLE   AGE
-example-foo   2/2     2            2           3m35s
-```
-
-Lastly, to uninstall the release, simply delete the CR and verify that the
-release resources have been deleted:
-
-```sh
-$ kubectl delete -f deploy/crds/foo.example.com_v1alpha1_foo_cr.yaml
-foo.foo.example.com "example-foo" deleted
-
-$ kubectl get all -l app.kubernetes.io/instance=${RELEASE_NAME}
-No resources found in default namespace.
+NAME                                    DESIRED   CURRENT   UP-TO-DATE   AVAILABLE   AGE
+example-foo-4f8ay4vfr99ulx905hax3j6x1   2         2         2            2           6m
 ```
 
 ### Testing a Helm operator on a cluster
@@ -506,40 +411,33 @@ NAME               DESIRED   CURRENT   UP-TO-DATE   AVAILABLE   AGE
 foo-operator       1         1         1            1           1m
 ```
 
-Apply the CR to Kubernetes and confirm that the release resources have been
-created:
+## Override values sent to Helm
 
-```sh
-$ kubectl apply -f deploy/crds/foo.example.com_v1alpha1_foo_cr.yaml
-foo.foo.example.com/example-foo configured
+The override values that are sent to Helm are managed by the operator. The
+contents of the `spec` section are passed along verbatim to Helm and treated
+like a value file would be if the Helm CLI were used (e.g.
+`helm install -f overrides.yaml ./my-chart`)
 
-$ kubectl get all -l app.kubernetes.io/instance=${RELEASE_NAME}
-NAME                               READY   STATUS    RESTARTS   AGE
-pod/example-foo-69594454bc-4z92w   1/1     Running   0          10s
-pod/example-foo-69594454bc-wp4sl   1/1     Running   0          10s
+For the CR example:
 
-NAME                  TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)   AGE
-service/example-foo   ClusterIP   10.107.177.143   <none>        80/TCP    10s
-
-NAME                          READY   UP-TO-DATE   AVAILABLE   AGE
-deployment.apps/example-foo   2/2     2            2           10s
-
-NAME                                     DESIRED   CURRENT   READY   AGE
-replicaset.apps/example-foo-69594454bc   2         2         2       10s
+```yaml
+apiVersion: "app.example.com/v1alpha1"
+kind: "Database"
+metadata:
+  name: "example"
+spec:
+  message: "Hello world 2"
+  newParameter: "newParam"
 ```
 
-Lastly, to uninstall the release, simply delete the CR and verify that the
-release resources have been deleted:
+The structure passed to Helm as values is:
 
-```sh
-$ kubectl delete -f deploy/crds/foo.example.com_v1alpha1_foo_cr.yaml
-foo.foo.example.com "example-foo" deleted
-
-$ kubectl get all -l app.kubernetes.io/instance=${RELEASE_NAME}
-No resources found in default namespace.
+```yaml
+message: "Hello world 2"
+newParameter: "newParam"
 ```
 
-[helm_charts]:https://helm.sh/docs/topics/charts/
-[helm_values]:https://helm.sh/docs/intro/using_helm/#customizing-the-chart-before-installing
-[helm_install]:https://helm.sh/docs/intro/install/
+[helm_charts]:https://v2.helm.sh/docs/developing_charts/
+[helm_values]:https://v2.helm.sh/docs/using_helm/#customizing-the-chart-before-installing
+[helm_install]:https://helm.sh/docs/using_helm/
 [helm_operator_user_guide]:../user-guide.md

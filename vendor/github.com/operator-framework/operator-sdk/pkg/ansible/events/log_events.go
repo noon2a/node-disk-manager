@@ -16,7 +16,6 @@ package events
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/operator-framework/operator-sdk/pkg/ansible/runner/eventapi"
 
@@ -68,12 +67,10 @@ func (l loggingEventHandler) Handle(ident string, u *unstructured.Unstructured, 
 
 		if e.Event == eventapi.EventPlaybookOnTaskStart && !setFactAction && !debugAction {
 			logger.Info("[playbook task]", "EventData.Name", e.EventData["name"])
-			l.logAnsibleStdOut(e)
 			return
 		}
 		if e.Event == eventapi.EventRunnerOnOk && debugAction {
 			logger.Info("[playbook debug]", "EventData.TaskArgs", e.EventData["task_args"])
-			l.logAnsibleStdOut(e)
 			return
 		}
 		if e.Event == eventapi.EventRunnerOnFailed {
@@ -85,7 +82,6 @@ func (l loggingEventHandler) Handle(ident string, u *unstructured.Unstructured, 
 				errKVs = append(errKVs, "EventData.FailedTaskPath", taskPath)
 			}
 			logger.Error(errors.New("[playbook task failed]"), "", errKVs...)
-			l.logAnsibleStdOut(e)
 			return
 		}
 	}
@@ -94,16 +90,6 @@ func (l loggingEventHandler) Handle(ident string, u *unstructured.Unstructured, 
 	if l.LogLevel == Everything {
 		logger.Info("", "EventData", e.EventData)
 	}
-}
-
-// logAnsibleStdOut will print in the logs the Ansible Task Output formatted
-func (l loggingEventHandler) logAnsibleStdOut(e eventapi.JobEvent) {
-	fmt.Printf("\n--------------------------- Ansible Task StdOut -------------------------------\n")
-	if e.Event != eventapi.EventPlaybookOnTaskStart {
-		fmt.Printf(fmt.Sprintf("\n TASK [%v] ******************************** \n", e.EventData["task"]))
-	}
-	fmt.Println(e.StdOut)
-	fmt.Printf("\n-------------------------------------------------------------------------------\n")
 }
 
 // NewLoggingEventHandler - Creates a Logging Event Handler to log events.

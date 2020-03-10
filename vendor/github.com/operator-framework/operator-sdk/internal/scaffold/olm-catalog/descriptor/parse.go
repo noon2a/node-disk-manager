@@ -15,7 +15,6 @@
 package descriptor
 
 import (
-	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,6 +24,7 @@ import (
 
 	"github.com/fatih/structtag"
 	olmapiv1alpha1 "github.com/operator-framework/operator-lifecycle-manager/pkg/api/apis/operators/v1alpha1"
+	"github.com/pkg/errors"
 	"k8s.io/gengo/types"
 )
 
@@ -93,21 +93,21 @@ func parseCSVGenAnnotations(comments []string) (pd parsedCRDDescriptions, err er
 			case "displayName":
 				pd.displayName, err = strconv.Unquote(vals[0])
 				if err != nil {
-					return parsedCRDDescriptions{}, fmt.Errorf("error unquoting displayName %s: %v", vals[0], err)
+					return parsedCRDDescriptions{}, errors.Wrapf(err, "error unquoting displayName %s", vals[0])
 				}
 			case "resources":
 				for _, v := range vals {
 					r, err := parseResource(v)
 					if err != nil {
-						return parsedCRDDescriptions{}, fmt.Errorf("error parsing resource %s: %v", v, err)
+						return parsedCRDDescriptions{}, errors.Wrapf(err, "error parsing resource %s", v)
 					}
 					pd.resources = append(pd.resources, r)
 				}
 			default:
-				return parsedCRDDescriptions{}, fmt.Errorf("unsupported %s child path element %s", parentPathElem, childPathElems[0])
+				return parsedCRDDescriptions{}, errors.Errorf("unsupported %s child path element %s", parentPathElem, childPathElems[0])
 			}
 		default:
-			return parsedCRDDescriptions{}, fmt.Errorf("unsupported path element %s", parentPathElem)
+			return parsedCRDDescriptions{}, errors.Errorf("unsupported path element %s", parentPathElem)
 		}
 	}
 	pd.descriptors = append(pd.descriptors, specd, statusd)
@@ -122,26 +122,26 @@ func parseMemberAnnotation(d *descriptor, pathElems []string, val string) (err e
 		// If this case is never entered, d will not be included.
 		d.include, err = strconv.ParseBool(val)
 		if err != nil {
-			return fmt.Errorf("error parsing %s bool val %s: %v", pathElems[0], val, err)
+			return errors.Wrapf(err, "error parsing %s bool val %s", pathElems[0], val)
 		}
 	case 2:
 		switch pathElems[1] {
 		case "displayName":
 			d.DisplayName, err = strconv.Unquote(val)
 			if err != nil {
-				return fmt.Errorf("error unquoting field displayName %s: %v", val, err)
+				return errors.Wrapf(err, "error unquoting field displayName %s", val)
 			}
 		case "x-descriptors":
 			xdStr, err := strconv.Unquote(val)
 			if err != nil {
-				return fmt.Errorf("error unquoting field x-descriptors %s: %v", val, err)
+				return errors.Wrapf(err, "error unquoting field x-descriptors %s", val)
 			}
 			d.XDescriptors = strings.Split(xdStr, ",")
 		default:
-			return fmt.Errorf("unsupported descriptor path element %s", pathElems[1])
+			return errors.Errorf("unsupported descriptor path element %s", pathElems[1])
 		}
 	default:
-		return fmt.Errorf("unsupported descriptor path %s", annotations.JoinPath(pathElems...))
+		return errors.Errorf("unsupported descriptor path %s", annotations.JoinPath(pathElems...))
 	}
 	return nil
 }
@@ -151,17 +151,17 @@ func parseMemberAnnotation(d *descriptor, pathElems []string, val string) (err e
 func parseResource(rStr string) (r olmapiv1alpha1.APIResourceReference, err error) {
 	rStr, err = strconv.Unquote(rStr)
 	if err != nil {
-		return r, fmt.Errorf("error unquoting resource %s: %v", rStr, err)
+		return r, errors.Wrapf(err, "error unquoting resource %s", rStr)
 	}
 	rSplit := strings.SplitN(rStr, ",", 3)
 	if len(rSplit) < 2 {
-		return r, fmt.Errorf("resource string %s did not have at least a kind and a version", rStr)
+		return r, errors.Errorf("resource string %s did not have at least a kind and a version", rStr)
 	}
 	r.Kind, r.Version = strings.TrimSpace(rSplit[0]), strings.TrimSpace(rSplit[1])
 	if len(rSplit) == 3 {
 		r.Name, err = strconv.Unquote(rSplit[2])
 		if err != nil {
-			return r, fmt.Errorf("error unquoting resource name %s: %v", rSplit[2], err)
+			return r, errors.Wrapf(err, "error unquoting resource name %s", rSplit[2])
 		}
 		r.Name = strings.TrimSpace(r.Name)
 	}

@@ -20,8 +20,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	gencrd "github.com/operator-framework/operator-sdk/internal/generate/crd"
-	gen "github.com/operator-framework/operator-sdk/internal/generate/gen"
 	"github.com/operator-framework/operator-sdk/internal/scaffold"
 	"github.com/operator-framework/operator-sdk/internal/scaffold/input"
 	"github.com/operator-framework/operator-sdk/internal/util/projutil"
@@ -76,7 +74,7 @@ func crdFunc(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	log.Infof("Generating CustomResourceDefinition (CRD) version %s for kind %s.", apiVersion, kind)
+	log.Infof("Generating Custom Resource Definition (CRD) version %s for kind %s.", apiVersion, kind)
 
 	// generate CR/CRD file
 	resource, err := scaffold.NewResource(apiVersion, kind)
@@ -86,26 +84,23 @@ func crdFunc(cmd *cobra.Command, args []string) error {
 
 	s := scaffold.Scaffold{}
 	err = s.Execute(cfg,
+		&scaffold.CRD{
+			Input:        input.Input{IfExistsAction: input.Skip},
+			Resource:     resource,
+			IsOperatorGo: projutil.IsOperatorGo(),
+		},
 		&scaffold.CR{
 			Input:    input.Input{IfExistsAction: input.Skip},
 			Resource: resource,
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("crd scaffold failed: %v", err)
-	}
-
-	// This command does not consider an APIs dir. Instead it adds a plain CRD
-	// for the provided resource. We can use NewCRDNonGo to get this behavior.
-	gcfg := gen.Config{}
-	crd := gencrd.NewCRDNonGo(gcfg, *resource)
-	if err := crd.Generate(); err != nil {
-		return fmt.Errorf("error generating CRD for %s: %w", resource, err)
+		return fmt.Errorf("crd scaffold failed: (%v)", err)
 	}
 
 	// update deploy/role.yaml for the given resource r.
 	if err := scaffold.UpdateRoleForResource(resource, cfg.AbsProjectPath); err != nil {
-		return fmt.Errorf("failed to update the RBAC manifest for the resource (%v, %v): %v", resource.APIVersion, resource.Kind, err)
+		return fmt.Errorf("failed to update the RBAC manifest for the resource (%v, %v): (%v)", resource.APIVersion, resource.Kind, err)
 	}
 
 	log.Info("CRD generation complete.")
@@ -133,7 +128,7 @@ func verifyCRDFlags() error {
 func verifyCRDDeployPath() error {
 	wd, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("failed to determine the full path of the current directory: %v", err)
+		return fmt.Errorf("failed to determine the full path of the current directory: (%v)", err)
 	}
 	// check if the deploy sub-directory exist
 	_, err = os.Stat(filepath.Join(wd, scaffold.DeployDir))

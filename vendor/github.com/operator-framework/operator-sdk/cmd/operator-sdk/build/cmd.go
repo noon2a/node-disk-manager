@@ -25,7 +25,6 @@ import (
 	"github.com/operator-framework/operator-sdk/internal/scaffold"
 	"github.com/operator-framework/operator-sdk/internal/util/projutil"
 
-	"github.com/google/shlex"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -74,10 +73,7 @@ func createBuildCommand(imageBuilder, context, dockerFile, image string, imageBu
 
 	for _, bargs := range imageBuildArgs {
 		if bargs != "" {
-			splitArgs, err := shlex.Split(bargs)
-			if err != nil {
-				return nil, fmt.Errorf("image-build-args is not parseable: %v", err)
-			}
+			splitArgs := strings.Fields(bargs)
 			args = append(args, splitArgs...)
 		}
 	}
@@ -120,7 +116,7 @@ func buildFunc(cmd *cobra.Command, args []string) error {
 			Env:         goBuildEnv,
 		}
 		if err := projutil.GoBuild(opts); err != nil {
-			return fmt.Errorf("failed to build operator binary: %v", err)
+			return fmt.Errorf("failed to build operator binary: (%v)", err)
 		}
 	}
 
@@ -134,7 +130,7 @@ func buildFunc(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := projutil.ExecCmd(buildCmd); err != nil {
-		return fmt.Errorf("failed to output build image %s: %v", image, err)
+		return fmt.Errorf("failed to output build image %s: (%v)", image, err)
 	}
 
 	log.Info("Operator build complete.")

@@ -56,7 +56,7 @@ const rolesMetaMainAnsibleTmpl = `galaxy_info:
   # - CC-BY
   license: license (GPLv2, CC-BY, etc)
 
-  min_ansible_version: 2.9
+  min_ansible_version: 2.6
 
   # If this a Container Enabled role, provide the minimum Ansible Container version.
   # min_ansible_container_version:
@@ -97,6 +97,4 @@ const rolesMetaMainAnsibleTmpl = `galaxy_info:
 
 dependencies: []
   # List your role dependencies here, one per line. Be sure to remove the '[]' above,
-  # if you add dependencies to this list.
-collections:
-- operator_sdk.util`
+  # if you add dependencies to this list.`

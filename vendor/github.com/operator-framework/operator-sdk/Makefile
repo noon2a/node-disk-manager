@@ -69,14 +69,8 @@ tidy: ## Update dependencies
 clean: ## Clean up the build artifacts
 	$(Q)rm -rf build
 
-lint-dev:  ## Run golangci-lint with all checks enabled (development purpose only)
+lint:  ## Run golangci-lint with all checks enabled (development purpose only)
 	./hack/tests/check-lint.sh dev
-
-lint-fix: ## Run golangci-lint automatically fix (development purpose only)
-	./hack/tests/check-lint.sh fix
-
-lint: ## Run golangci-lint with all checks enabled in the ci
-	./hack/tests/check-lint.sh ci
 
 ##############################
 # Generate Artifacts         #
@@ -187,10 +181,11 @@ test: test-unit ## Run the tests
 test-markdown test/markdown:
 	./hack/ci/marker
 
-test-sanity test/sanity: tidy build/operator-sdk lint
+test-sanity test/sanity: tidy build/operator-sdk
 	./hack/tests/sanity-check.sh
+	./hack/tests/check-lint.sh ci
 
-TEST_PKGS:=$(shell go list ./... | grep -v -P 'github.com/operator-framework/operator-sdk/(hack/|test/)')
+TEST_PKGS:=$(shell go list ./... | grep -v -P 'github.com/operator-framework/operator-sdk/(hack|test/e2e)')
 test-unit test/unit: ## Run the unit tests
 	$(Q)go test -coverprofile=coverage.out -covermode=count -count=1 -short ${TEST_PKGS}
 
@@ -213,8 +208,8 @@ test-subcommand-scorecard:
 test-subcommand-olm-install:
 	./hack/tests/subcommand-olm-install.sh
 
-# E2E and integration tests.
-.PHONY: test-e2e test-e2e-go test-e2e-ansible test-e2e-ansible-molecule test-e2e-helm test-integration
+# E2E tests.
+.PHONY: test-e2e test-e2e-go test-e2e-ansible test-e2e-ansible-molecule test-e2e-helm
 
 test-e2e: test-e2e-go test-e2e-ansible test-e2e-ansible-molecule test-e2e-helm ## Run the e2e tests
 
@@ -229,6 +224,3 @@ test-e2e-ansible-molecule: image-build-ansible
 
 test-e2e-helm: image-build-helm
 	./hack/tests/e2e-helm.sh
-
-test-integration:
-	./hack/tests/integration.sh

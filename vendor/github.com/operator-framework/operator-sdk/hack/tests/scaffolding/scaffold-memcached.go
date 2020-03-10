@@ -27,6 +27,7 @@ import (
 
 	"github.com/operator-framework/operator-sdk/internal/util/fileutil"
 
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -199,7 +200,7 @@ func main() {
 func insertGoModReplaceDir(repo, path string) ([]byte, error) {
 	modBytes, err := ioutil.ReadFile("go.mod")
 	if err != nil {
-		return nil, fmt.Errorf("failed to read go.mod: %w", err)
+		return nil, errors.Wrap(err, "failed to read go.mod")
 	}
 	// Remove all replace lines in go.mod.
 	replaceRe := regexp.MustCompile(fmt.Sprintf("(replace )?%s =>.+", repo))
@@ -209,7 +210,7 @@ func insertGoModReplaceDir(repo, path string) ([]byte, error) {
 	modBytes = append(modBytes, []byte("\n"+sdkReplace)...)
 	err = ioutil.WriteFile("go.mod", modBytes, fileutil.DefaultFileMode)
 	if err != nil {
-		return nil, fmt.Errorf("failed to write go.mod before replacing SDK repo: %w", err)
+		return nil, errors.Wrap(err, "failed to write go.mod before replacing SDK repo")
 	}
 	return modBytes, nil
 }

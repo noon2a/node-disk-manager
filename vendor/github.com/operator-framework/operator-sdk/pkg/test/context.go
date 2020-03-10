@@ -15,10 +15,11 @@
 package test
 
 import (
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/pborman/uuid"
 	log "github.com/sirupsen/logrus"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/restmapper"
@@ -47,8 +48,23 @@ type CleanupOptions struct {
 type cleanupFn func() error
 
 func (f *Framework) newTestCtx(t *testing.T) *TestCtx {
-	// TestCtx is used among others for namespace names where '/' is forbidden and must be 63 characters or less
-	id := "osdk-e2e-" + uuid.New()
+	var prefix string
+	if t != nil {
+		// TestCtx is used among others for namespace names where '/' is forbidden
+		prefix = strings.TrimPrefix(
+			strings.Replace(
+				strings.ToLower(t.Name()),
+				"/",
+				"-",
+				-1,
+			),
+			"test",
+		)
+	} else {
+		prefix = "main"
+	}
+
+	id := prefix + "-" + strconv.FormatInt(time.Now().Unix(), 10)
 
 	var namespace string
 	if f.singleNamespaceMode {

@@ -19,6 +19,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/operator-framework/operator-sdk/internal/scaffold/input"
 
@@ -56,4 +57,21 @@ func setupScaffoldAndWriter() (*Scaffold, *bytes.Buffer) {
 			return buf, nil
 		},
 	}, buf
+}
+
+func setupTestFrameworkConfig() (*input.Config, error) {
+	absPath, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	absPath = absPath[:strings.Index(absPath, "internal")]
+	tfDir := filepath.Join(absPath, "test", "test-framework")
+
+	// Set the project and repo path suffixes to test/test-framework, which
+	// contains pkg/apis for the memcached-operator.
+	return &input.Config{
+		Repo:           "github.com/operator-framework/operator-sdk/test/test-framework",
+		AbsProjectPath: tfDir,
+		ProjectName:    filepath.Base(tfDir),
+	}, nil
 }

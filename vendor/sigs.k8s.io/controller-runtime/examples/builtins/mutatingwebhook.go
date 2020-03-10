@@ -30,7 +30,7 @@ import (
 
 // podAnnotator annotates Pods
 type podAnnotator struct {
-	Client  client.Client
+	client  client.Client
 	decoder *admission.Decoder
 }
 
@@ -54,6 +54,15 @@ func (a *podAnnotator) Handle(ctx context.Context, req admission.Request) admiss
 	}
 
 	return admission.PatchResponseFromRaw(req.Object.Raw, marshaledPod)
+}
+
+// podAnnotator implements inject.Client.
+// A client will be automatically injected.
+
+// InjectClient injects the client.
+func (a *podAnnotator) InjectClient(c client.Client) error {
+	a.client = c
+	return nil
 }
 
 // podAnnotator implements admission.DecoderInjector.

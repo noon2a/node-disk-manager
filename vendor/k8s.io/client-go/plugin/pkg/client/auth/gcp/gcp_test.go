@@ -476,25 +476,25 @@ func Test_cmdTokenSource_roundTrip(t *testing.T) {
 	}{
 		{
 			"Unauthorized",
-			http.Response{StatusCode: http.StatusUnauthorized},
+			http.Response{StatusCode: 401},
 			make(map[string]string),
 			make(map[string]string),
 		},
 		{
 			"Unauthorized, nonempty defaultCache",
-			http.Response{StatusCode: http.StatusUnauthorized},
+			http.Response{StatusCode: 401},
 			cmdCache,
 			cmdCache,
 		},
 		{
 			"Authorized",
-			http.Response{StatusCode: http.StatusOK},
+			http.Response{StatusCode: 200},
 			make(map[string]string),
 			simpleCacheUpdated,
 		},
 		{
 			"Authorized, nonempty defaultCache",
-			http.Response{StatusCode: http.StatusOK},
+			http.Response{StatusCode: 200},
 			cmdCache,
 			cmdCacheUpdated,
 		},

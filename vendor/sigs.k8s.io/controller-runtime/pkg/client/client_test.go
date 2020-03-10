@@ -1146,7 +1146,7 @@ var _ = Describe("Client", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				By("patching the Deployment")
-				err = cl.Patch(context.TODO(), dep, client.RawPatch(types.MergePatchType, mergePatch))
+				err = cl.Patch(context.TODO(), dep, client.ConstantPatch(types.MergePatchType, mergePatch))
 				Expect(err).NotTo(HaveOccurred())
 
 				By("validating patched Deployment has new annotation")
@@ -1169,7 +1169,7 @@ var _ = Describe("Client", func() {
 
 				By("patching the Deployment")
 				dep.SetGroupVersionKind(depGvk)
-				err = cl.Patch(context.TODO(), dep, client.RawPatch(types.MergePatchType, mergePatch))
+				err = cl.Patch(context.TODO(), dep, client.ConstantPatch(types.MergePatchType, mergePatch))
 				Expect(err).NotTo(HaveOccurred())
 
 				By("validating updated Deployment has type information")
@@ -1189,7 +1189,7 @@ var _ = Describe("Client", func() {
 
 				By("patching the Node")
 				nodeName := node.Name
-				err = cl.Patch(context.TODO(), node, client.RawPatch(types.MergePatchType, mergePatch))
+				err = cl.Patch(context.TODO(), node, client.ConstantPatch(types.MergePatchType, mergePatch))
 				Expect(err).NotTo(HaveOccurred())
 
 				By("validating the Node no longer exists")
@@ -1207,7 +1207,7 @@ var _ = Describe("Client", func() {
 				Expect(cl).NotTo(BeNil())
 
 				By("Patching node before it is ever created")
-				err = cl.Patch(context.TODO(), node, client.RawPatch(types.MergePatchType, mergePatch))
+				err = cl.Patch(context.TODO(), node, client.ConstantPatch(types.MergePatchType, mergePatch))
 				Expect(err).To(HaveOccurred())
 
 				close(done)
@@ -1229,7 +1229,7 @@ var _ = Describe("Client", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				By("patching the Deployment fails")
-				err = cl.Patch(context.TODO(), dep, client.RawPatch(types.MergePatchType, mergePatch))
+				err = cl.Patch(context.TODO(), dep, client.ConstantPatch(types.MergePatchType, mergePatch))
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("no kind is registered for the type"))
 
@@ -1251,7 +1251,7 @@ var _ = Describe("Client", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				By("patching the Deployment with dry-run")
-				err = cl.Patch(context.TODO(), dep, client.RawPatch(types.MergePatchType, mergePatch), client.PatchDryRunAll)
+				err = cl.Patch(context.TODO(), dep, client.ConstantPatch(types.MergePatchType, mergePatch), client.PatchDryRunAll)
 				Expect(err).NotTo(HaveOccurred())
 
 				By("validating patched Deployment doesn't have the new annotation")
@@ -1280,7 +1280,7 @@ var _ = Describe("Client", func() {
 					Kind:    "Deployment",
 					Version: "v1",
 				})
-				err = cl.Patch(context.TODO(), u, client.RawPatch(types.MergePatchType, mergePatch))
+				err = cl.Patch(context.TODO(), u, client.ConstantPatch(types.MergePatchType, mergePatch))
 				Expect(err).NotTo(HaveOccurred())
 
 				By("validating patched Deployment has new annotation")
@@ -1305,7 +1305,7 @@ var _ = Describe("Client", func() {
 				u := &unstructured.Unstructured{}
 				Expect(scheme.Convert(dep, u, nil)).To(Succeed())
 				u.SetGroupVersionKind(depGvk)
-				err = cl.Patch(context.TODO(), u, client.RawPatch(types.MergePatchType, mergePatch))
+				err = cl.Patch(context.TODO(), u, client.ConstantPatch(types.MergePatchType, mergePatch))
 				Expect(err).NotTo(HaveOccurred())
 
 				By("validating updated Deployment has type information")
@@ -1332,7 +1332,7 @@ var _ = Describe("Client", func() {
 					Kind:    "Node",
 					Version: "v1",
 				})
-				err = cl.Patch(context.TODO(), u, client.RawPatch(types.MergePatchType, mergePatch))
+				err = cl.Patch(context.TODO(), u, client.ConstantPatch(types.MergePatchType, mergePatch))
 				Expect(err).NotTo(HaveOccurred())
 
 				By("validating patched Node has new annotation")
@@ -1357,7 +1357,7 @@ var _ = Describe("Client", func() {
 					Kind:    "Node",
 					Version: "v1",
 				})
-				err = cl.Patch(context.TODO(), node, client.RawPatch(types.MergePatchType, mergePatch))
+				err = cl.Patch(context.TODO(), node, client.ConstantPatch(types.MergePatchType, mergePatch))
 				Expect(err).To(HaveOccurred())
 
 				close(done)
@@ -1382,7 +1382,7 @@ var _ = Describe("Client", func() {
 					Kind:    "Deployment",
 					Version: "v1",
 				})
-				err = cl.Patch(context.TODO(), u, client.RawPatch(types.MergePatchType, mergePatch), client.PatchDryRunAll)
+				err = cl.Patch(context.TODO(), u, client.ConstantPatch(types.MergePatchType, mergePatch), client.PatchDryRunAll)
 				Expect(err).NotTo(HaveOccurred())
 
 				By("validating patched Deployment does not have the new annotation")
@@ -1794,7 +1794,7 @@ var _ = Describe("Client", func() {
 				By("listing all Deployments with field metadata.name=deployment-backend")
 				deps := &appsv1.DeploymentList{}
 				err = cl.List(context.Background(), deps,
-					client.MatchingFields{"metadata.name": "deployment-backend"})
+					client.MatchingField("metadata.name", "deployment-backend"))
 				Expect(err).NotTo(HaveOccurred())
 
 				By("only the Deployment with the backend field is returned")
@@ -2160,7 +2160,7 @@ var _ = Describe("Client", func() {
 					Version: "v1",
 				})
 				err = cl.List(context.Background(), deps,
-					client.MatchingFields{"metadata.name": "deployment-backend"})
+					client.MatchingField("metadata.name", "deployment-backend"))
 				Expect(err).NotTo(HaveOccurred())
 
 				By("only the Deployment with the backend field is returned")
@@ -2389,7 +2389,7 @@ var _ = Describe("Client", func() {
 	Describe("ListOptions", func() {
 		It("should be convertable to metav1.ListOptions", func() {
 			lo := (&client.ListOptions{}).ApplyOptions([]client.ListOption{
-				client.MatchingFields{"field1": "bar"},
+				client.MatchingField("field1", "bar"),
 				client.InNamespace("test-namespace"),
 				client.MatchingLabels{"foo": "bar"},
 				client.Limit(1),
@@ -2412,7 +2412,7 @@ var _ = Describe("Client", func() {
 
 		It("should be populated by MatchingField", func() {
 			lo := &client.ListOptions{}
-			client.MatchingFields{"field1": "bar"}.ApplyToList(lo)
+			client.MatchingField("field1", "bar").ApplyToList(lo)
 			Expect(lo).NotTo(BeNil())
 			Expect(lo.FieldSelector.String()).To(Equal("field1=bar"))
 		})

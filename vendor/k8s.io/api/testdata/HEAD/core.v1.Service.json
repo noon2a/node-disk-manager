@@ -72,17 +72,14 @@
         "timeoutSeconds": -1973740160
       }
     },
-    "ipFamily": "³-Ǐ忄*齧獚敆ȎțêɘĲ斬",
-    "topologyKeys": [
-      "28"
-    ]
+    "ipFamily": "³-Ǐ忄*齧獚敆ȎțêɘĲ斬"
   },
   "status": {
     "loadBalancer": {
       "ingress": [
         {
-          "ip": "29",
-          "hostname": "30"
+          "ip": "28",
+          "hostname": "29"
         }
       ]
     }

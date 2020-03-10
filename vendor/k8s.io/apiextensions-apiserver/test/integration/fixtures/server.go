@@ -21,7 +21,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/google/uuid"
+	"github.com/pborman/uuid"
 	"k8s.io/apiextensions-apiserver/pkg/cmd/server/options"
 
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
@@ -34,9 +34,6 @@ import (
 func StartDefaultServer(t servertesting.Logger, flags ...string) (func(), *rest.Config, *options.CustomResourceDefinitionsServerOptions, error) {
 	// create kubeconfig which will not actually be used. But authz/authn needs it to startup.
 	fakeKubeConfig, err := ioutil.TempFile("", "kubeconfig")
-	if err != nil {
-		return nil, nil, nil, err
-	}
 	fakeKubeConfig.WriteString(`
 apiVersion: v1
 kind: Config
@@ -59,7 +56,7 @@ users:
 	fakeKubeConfig.Close()
 
 	s, err := servertesting.StartTestServer(t, nil, append([]string{
-		"--etcd-prefix", uuid.New().String(),
+		"--etcd-prefix", uuid.New(),
 		"--etcd-servers", strings.Join(IntegrationEtcdServers(), ","),
 		"--authentication-skip-lookup",
 		"--authentication-kubeconfig", fakeKubeConfig.Name(),

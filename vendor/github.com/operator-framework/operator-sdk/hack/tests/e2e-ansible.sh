@@ -4,7 +4,7 @@ set -eu
 
 source hack/lib/test_lib.sh
 source hack/lib/image_lib.sh
-source ./hack/lib/common.sh
+source ./hack/common.sh
 
 # ansible proxy test require a running cluster; run during e2e instead
 go test -count=1 ./pkg/ansible/proxy/...
@@ -172,8 +172,8 @@ load_image_if_kind "$METRICS_TEST_IMAGE"
 
 OPERATORDIR="$(pwd)"
 
-trap_add 'remove_operator' EXIT
 deploy_operator
+trap_add 'remove_operator' EXIT
 test_operator
 remove_operator
 

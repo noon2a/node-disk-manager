@@ -25,6 +25,7 @@ import (
 	"github.com/operator-framework/operator-sdk/internal/scaffold/input"
 	"github.com/operator-framework/operator-sdk/internal/util/projutil"
 
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
@@ -114,7 +115,7 @@ func apiRun(cmd *cobra.Command, args []string) error {
 	// scaffold a group.go to prevent erroneous gengo parse errors.
 	group := &scaffold.Group{Resource: r}
 	if err := scaffoldIfNoPkgFileExists(s, cfg, group); err != nil {
-		return fmt.Errorf("scaffold group file: %v", err)
+		return errors.Wrap(err, "scaffold group file")
 	}
 
 	err = s.Execute(cfg,
@@ -123,14 +124,15 @@ func apiRun(cmd *cobra.Command, args []string) error {
 		&scaffold.Register{Resource: r},
 		&scaffold.Doc{Resource: r},
 		&scaffold.CR{Resource: r},
+		&scaffold.CRD{Resource: r, IsOperatorGo: projutil.IsOperatorGo()},
 	)
 	if err != nil {
-		return fmt.Errorf("api scaffold failed: %v", err)
+		return fmt.Errorf("api scaffold failed: (%v)", err)
 	}
 
 	// update deploy/role.yaml for the given resource r.
 	if err := scaffold.UpdateRoleForResource(r, absProjectPath); err != nil {
-		return fmt.Errorf("failed to update the RBAC manifest for the resource (%v, %v): %v", r.APIVersion, r.Kind, err)
+		return fmt.Errorf("failed to update the RBAC manifest for the resource (%v, %v): (%v)", r.APIVersion, r.Kind, err)
 	}
 
 	if !skipGeneration {
@@ -154,12 +156,12 @@ func apiRun(cmd *cobra.Command, args []string) error {
 func scaffoldIfNoPkgFileExists(s *scaffold.Scaffold, cfg *input.Config, f input.File) error {
 	i, err := f.GetInput()
 	if err != nil {
-		return fmt.Errorf("error getting file %s input: %v", i.Path, err)
+		return errors.Wrapf(err, "error getting file %s input", i.Path)
 	}
 	groupDir := filepath.Dir(i.Path)
 	gdInfos, err := ioutil.ReadDir(groupDir)
 	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("error reading dir %s: %v", groupDir, err)
+		return errors.Wrapf(err, "error reading dir %s", groupDir)
 	}
 	if err == nil {
 		for _, info := range gdInfos {

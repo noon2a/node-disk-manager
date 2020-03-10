@@ -19,6 +19,7 @@ package schema
 import (
 	"math/rand"
 	"reflect"
+	"regexp"
 	"testing"
 	"time"
 
@@ -29,6 +30,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/diff"
 	"k8s.io/apimachinery/pkg/util/json"
 )
+
+var nullTypeRE = regexp.MustCompile(`"type":\["([^"]*)","null"]`)
 
 func TestStructuralRoundtrip(t *testing.T) {
 	f := fuzz.New()

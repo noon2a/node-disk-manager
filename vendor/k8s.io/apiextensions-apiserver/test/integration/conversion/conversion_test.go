@@ -45,6 +45,7 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	"k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	"k8s.io/apiextensions-apiserver/pkg/cmd/server/options"
 	serveroptions "k8s.io/apiextensions-apiserver/pkg/cmd/server/options"
 	apiextensionsfeatures "k8s.io/apiextensions-apiserver/pkg/features"
 	"k8s.io/apiextensions-apiserver/test/integration/fixtures"
@@ -270,7 +271,8 @@ func validateStorageVersion(t *testing.T, ctc *conversionTestContext) {
 			}
 			ctc.setAndWaitStorageVersion(t, "v1beta2")
 
-			if _, err = client.Get(obj.GetName(), metav1.GetOptions{}); err != nil {
+			obj, err = client.Get(obj.GetName(), metav1.GetOptions{})
+			if err != nil {
 				t.Fatal(err)
 			}
 
@@ -940,6 +942,7 @@ type conversionTestContext struct {
 	namespace           string
 	apiExtensionsClient clientset.Interface
 	dynamicClient       dynamic.Interface
+	options             *options.CustomResourceDefinitionsServerOptions
 	crd                 *apiextensionsv1beta1.CustomResourceDefinition
 	etcdObjectReader    *storage.EtcdObjectReader
 }

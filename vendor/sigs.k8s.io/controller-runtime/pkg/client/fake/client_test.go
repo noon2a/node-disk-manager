@@ -122,23 +122,13 @@ var _ = Describe("Fake client", func() {
 			Expect(list.Items).To(HaveLen(2))
 		})
 
-		It("should support filtering by labels and their values", func() {
-			By("Listing deployments with a particular label and value")
+		It("should support filtering by labels", func() {
+			By("Listing deployments with a particular label")
 			list := &appsv1.DeploymentList{}
 			err := cl.List(nil, list, client.InNamespace("ns1"),
 				client.MatchingLabels(map[string]string{
 					"test-label": "label-value",
 				}))
-			Expect(err).To(BeNil())
-			Expect(list.Items).To(HaveLen(1))
-			Expect(list.Items).To(ConsistOf(*dep2))
-		})
-
-		It("should support filtering by label existence", func() {
-			By("Listing deployments with a particular label")
-			list := &appsv1.DeploymentList{}
-			err := cl.List(nil, list, client.InNamespace("ns1"),
-				client.HasLabels{"test-label"})
 			Expect(err).To(BeNil())
 			Expect(list.Items).To(HaveLen(1))
 			Expect(list.Items).To(ConsistOf(*dep2))
@@ -289,7 +279,7 @@ var _ = Describe("Fake client", func() {
 				},
 			})
 			Expect(err).NotTo(HaveOccurred())
-			err = cl.Patch(nil, dep, client.RawPatch(types.StrategicMergePatchType, mergePatch))
+			err = cl.Patch(nil, dep, client.ConstantPatch(types.StrategicMergePatchType, mergePatch))
 			Expect(err).NotTo(HaveOccurred())
 
 			By("Getting the patched deployment")

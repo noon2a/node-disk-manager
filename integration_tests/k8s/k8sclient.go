@@ -79,7 +79,7 @@ func GetClientSet() (K8sClient, error) {
 	}
 
 	// controller-runtime client
-	mgr, err := manager.New(config, manager.Options{Namespace: Namespace})
+	mgr, err := manager.New(config, manager.Options{Namespace: Namespace, MetricsBindAddress: "0"})
 	if err != nil {
 		return clientSet, err
 	}
@@ -90,16 +90,16 @@ func GetClientSet() (K8sClient, error) {
 		return clientSet, err
 	}
 
-	clientSet.RunTimeClient = mgr.GetClient() /*err = client.New(config, client.Options{Scheme: scheme})*/
-	/*if err != nil {
+	clientSet.RunTimeClient, err = client.New(config, client.Options{Scheme: scheme})
+	if err != nil {
 		return clientSet, err
-	}*/
+	}
 	return clientSet, nil
 }
 
 func (k *K8sClient) RegenerateClient() error {
 	// controller-runtime client
-	mgr, err := manager.New(k.config, manager.Options{Namespace: Namespace})
+	mgr, err := manager.New(k.config, manager.Options{Namespace: Namespace, MetricsBindAddress: "0"})
 	if err != nil {
 		return err
 	}
@@ -110,10 +110,9 @@ func (k *K8sClient) RegenerateClient() error {
 		return err
 	}
 
-	k.RunTimeClient = mgr.GetClient()
-	/*if err != nil {
+	k.RunTimeClient, err = client.New(k.config, client.Options{Scheme: scheme})
+	if err != nil {
 		return err
 	}
-	 = cl
-	*/return nil
+	return nil
 }
