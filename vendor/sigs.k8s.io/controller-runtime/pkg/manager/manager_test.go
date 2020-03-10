@@ -21,11 +21,13 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	rt "runtime"
 
 	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus"
+
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
@@ -144,15 +146,16 @@ var _ = Describe("manger.Manager", func() {
 				m, err := New(cfg, Options{
 					LeaderElection:          true,
 					LeaderElectionNamespace: "default",
+					LeaderElectionID:        "test-leader-election-id",
 					newResourceLock: func(config *rest.Config, recorderProvider recorder.Provider, options leaderelection.Options) (resourcelock.Interface, error) {
 						var err error
 						rl, err = leaderelection.NewResourceLock(config, recorderProvider, options)
 						return rl, err
 					},
 				})
-				Expect(m).ToNot(BeNil())
 				Expect(err).ToNot(HaveOccurred())
-				Expect(rl.Describe()).To(Equal("default/controller-leader-election-helper"))
+				Expect(m).ToNot(BeNil())
+				Expect(rl.Describe()).To(Equal("default/test-leader-election-id"))
 			})
 
 			It("should return an error if namespace not set and not running in cluster", func() {
@@ -745,6 +748,23 @@ var _ = Describe("manger.Manager", func() {
 			Expect(err).To(Equal(expected))
 			close(done)
 		})
+	})
+
+	It("should not leak goroutines when stop", func(done Done) {
+		// TODO(directxman12): After closing the proper leaks on watch this must be reduced to 0
+		// The leaks currently come from the event-related code (as in corev1.Event).
+		threshold := 3
+
+		m, err := New(cfg, Options{})
+		Expect(err).NotTo(HaveOccurred())
+		startGoruntime := rt.NumGoroutine()
+
+		s := make(chan struct{})
+		close(s)
+		Expect(m.Start(s)).NotTo(HaveOccurred())
+
+		Expect(rt.NumGoroutine() - startGoruntime).To(BeNumerically("<=", threshold))
+		close(done)
 	})
 
 	It("should provide a function to get the Config", func() {

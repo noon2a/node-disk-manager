@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 set -e
 
-source ./hack/common.sh
+source ./hack/lib/common.sh
+
+function fetch_go_linter {
+  header_text "Checking if golangci-lint is installed"
+  if ! is_installed golangci-lint; then
+    header_text "Installing golangci-lint"
+    curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh| sh -s -- -b $(go env GOPATH)/bin v1.21.0
+  fi
+}
 
 DEV_LINTERS=(
     ##todo(camilamacedo86): The following checks requires fixes in the code.
@@ -11,8 +19,17 @@ DEV_LINTERS=(
     "--enable=gosec"  # NOT add this one to CI since was defined that it should be optional for now at least.
 )
 
+# Some lint checks can be fixed automatically by using it.
+FIX_LINTERS=(
+    "--fix"
+)
+
 subcommand=$1
 case $subcommand in
+	"fix")
+	  header_text "Running lint check with automatically fix"
+		LINTERS=${FIX_LINTERS[@]}
+		;;
 	"dev")
 	  ##todo(camilamacedo86): It should be removed when all linter checks be enabled
 	  header_text "Checking the project with all linters (dev)"
