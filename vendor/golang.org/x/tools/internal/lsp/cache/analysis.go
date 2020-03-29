@@ -15,11 +15,11 @@ import (
 
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/tools/go/analysis"
+	"golang.org/x/tools/internal/analysisinternal"
+	"golang.org/x/tools/internal/lsp/debug/tag"
 	"golang.org/x/tools/internal/lsp/source"
-	"golang.org/x/tools/internal/lsp/telemetry"
 	"golang.org/x/tools/internal/memoize"
-	"golang.org/x/tools/internal/telemetry/log"
-	"golang.org/x/tools/internal/telemetry/tag"
+	"golang.org/x/tools/internal/telemetry/event"
 	errors "golang.org/x/xerrors"
 )
 
@@ -137,7 +137,7 @@ func (s *snapshot) actionHandle(ctx context.Context, id packageID, a *analysis.A
 
 	h := s.view.session.cache.store.Bind(buildActionKey(a, ph), func(ctx context.Context) interface{} {
 		// Analyze dependencies first.
-		results, err := execAll(ctx, fset, deps)
+		results, err := execAll(ctx, deps)
 		if err != nil {
 			return &actionData{
 				err: err,
@@ -174,7 +174,7 @@ func (act *actionHandle) String() string {
 	return fmt.Sprintf("%s@%s", act.analyzer, act.pkg.PkgPath())
 }
 
-func execAll(ctx context.Context, fset *token.FileSet, actions []*actionHandle) (map[*actionHandle]*actionData, error) {
+func execAll(ctx context.Context, actions []*actionHandle) (map[*actionHandle]*actionData, error) {
 	var mu sync.Mutex
 	results := make(map[*actionHandle]*actionData)
 
@@ -208,7 +208,7 @@ func runAnalysis(ctx context.Context, fset *token.FileSet, analyzer *analysis.An
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			log.Print(ctx, fmt.Sprintf("analysis panicked: %s", r), telemetry.Package.Of(pkg.PkgPath))
+			event.Print(ctx, fmt.Sprintf("analysis panicked: %s", r), tag.Package.Of(pkg.PkgPath()))
 			data.err = errors.Errorf("analysis %s for package %s panicked: %v", analyzer.Name, pkg.PkgPath(), r)
 		}
 	}()
@@ -316,6 +316,7 @@ func runAnalysis(ctx context.Context, fset *token.FileSet, analyzer *analysis.An
 			return facts
 		},
 	}
+	analysisinternal.SetTypeErrors(pass, pkg.typeErrors)
 
 	if pkg.IsIllTyped() {
 		data.err = errors.Errorf("analysis skipped due to errors in package: %v", pkg.GetErrors())
@@ -344,7 +345,7 @@ func runAnalysis(ctx context.Context, fset *token.FileSet, analyzer *analysis.An
 	for _, diag := range diagnostics {
 		srcErr, err := sourceError(ctx, fset, pkg, diag)
 		if err != nil {
-			log.Error(ctx, "unable to compute analysis error position", err, tag.Of("category", diag.Category), telemetry.Package.Of(pkg.ID()))
+			event.Error(ctx, "unable to compute analysis error position", err, tag.Category.Of(diag.Category), tag.Package.Of(pkg.ID()))
 			continue
 		}
 		data.diagnostics = append(data.diagnostics, srcErr)

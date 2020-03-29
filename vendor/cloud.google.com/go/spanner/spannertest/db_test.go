@@ -19,6 +19,7 @@ package spannertest
 import (
 	"io"
 	"reflect"
+	"sync"
 	"testing"
 
 	"google.golang.org/grpc/codes"
@@ -266,8 +267,8 @@ func TestTableData(t *testing.T) {
 			},
 		},
 	}, queryParams{
-		"min": "01",
-		"max": "07",
+		"min": stringParam("01"),
+		"max": stringParam("07"),
 	})
 	if err != nil {
 		t.Fatalf("Deleting with DML: %v", err)
@@ -350,7 +351,7 @@ func TestTableData(t *testing.T) {
 		// There was a bug that returned errors for some of these cases.
 		{
 			`SELECT @x IS TRUE, @x IS NOT TRUE, @x IS FALSE, @x IS NOT FALSE, @x IS NULL, @x IS NOT NULL`,
-			queryParams{"x": nil},
+			queryParams{"x": nullParam()},
 			[][]interface{}{
 				{false, true, false, true, true, false},
 			},
@@ -375,7 +376,7 @@ func TestTableData(t *testing.T) {
 		},
 		{
 			`SELECT Name, ID + 100 FROM Staff WHERE @min <= Tenure AND Tenure < @lim ORDER BY Cool, Name DESC LIMIT @numResults`,
-			queryParams{"min": int64(9), "lim": int64(11), "numResults": "100"},
+			queryParams{"min": intParam(9), "lim": intParam(11), "numResults": intParam(100)},
 			[][]interface{}{
 				{"Jack", int64(101)},
 				{"Sam", int64(103)},
@@ -409,7 +410,7 @@ func TestTableData(t *testing.T) {
 		},
 		{
 			`SELECT Name, Height FROM Staff WHERE Height BETWEEN @min AND @max ORDER BY Height DESC`,
-			queryParams{"min": 1.75, "max": 1.85},
+			queryParams{"min": floatParam(1.75), "max": floatParam(1.85)},
 			[][]interface{}{
 				{"Jack", 1.85},
 				{"Daniel", 1.83},
@@ -424,6 +425,14 @@ func TestTableData(t *testing.T) {
 			},
 		},
 		{
+			// Check that aggregation still works for the empty set.
+			`SELECT COUNT(*) FROM Staff WHERE Name = "Nobody"`,
+			nil,
+			[][]interface{}{
+				{int64(0)},
+			},
+		},
+		{
 			`SELECT * FROM Staff WHERE Name LIKE "S%"`,
 			nil,
 			[][]interface{}{
@@ -433,8 +442,16 @@ func TestTableData(t *testing.T) {
 			},
 		},
 		{
+			// Exactly the same as the previous, except with a redundant ORDER BY clause.
+			`SELECT * FROM Staff WHERE Name LIKE "S%" ORDER BY Name`,
+			nil,
+			[][]interface{}{
+				{"Sam", int64(3), int64(9), false, 1.75, nil, nil, nil},
+			},
+		},
+		{
 			`SELECT Name FROM Staff WHERE FirstSeen >= @min`,
-			queryParams{"min": "1996-01-01"},
+			queryParams{"min": queryParam{Value: "1996-01-01", Type: spansql.Type{Base: spansql.Date}}},
 			[][]interface{}{
 				{"George"},
 			},
@@ -466,6 +483,17 @@ func TestTableData(t *testing.T) {
 				{true, false},
 			},
 		},
+		{
+			`SELECT Name FROM Staff WHERE ID IN UNNEST(@ids)`,
+			queryParams{"ids": queryParam{
+				Value: []interface{}{int64(3), int64(1)},
+				Type:  spansql.Type{Base: spansql.Int64, Array: true},
+			}},
+			[][]interface{}{
+				{"Jack"},
+				{"Sam"},
+			},
+		},
 		// From https://cloud.google.com/spanner/docs/query-syntax#group-by-clause_1:
 		{
 			// TODO: Ordering matters? Our implementation sorts by the GROUP BY key,
@@ -476,6 +504,24 @@ func TestTableData(t *testing.T) {
 				{"Adams", int64(7)},
 				{"Buchanan", int64(13)},
 				{"Coolidge", int64(1)},
+			},
+		},
+		{
+			// Another GROUP BY, but referring to an alias.
+			// Group by ID oddness, SUM over Tenure.
+			`SELECT ID&0x01 AS odd, SUM(Tenure) FROM Staff GROUP BY odd`,
+			nil,
+			[][]interface{}{
+				{int64(0), int64(19)}, // Daniel(ID=2, Tenure=11), Teal'c(ID=4, Tenure=8)
+				{int64(1), int64(25)}, // Jack(ID=1, Tenure=10), Sam(ID=3, Tenure=9), George(ID=5, Tenure=6)
+			},
+		},
+		{
+			`SELECT ARRAY_AGG(Cool) FROM Staff ORDER BY Name`,
+			nil,
+			[][]interface{}{
+				// Daniel, George (NULL), Jack (NULL), Sam, Teal'c
+				{[]interface{}{false, nil, nil, false, true}},
 			},
 		},
 	}
@@ -702,6 +748,79 @@ testLoop:
 	}
 }
 
+func TestConcurrentReadInsert(t *testing.T) {
+	// Check that data is safely copied during a query.
+	tbl := &spansql.CreateTable{
+		Name: "Tablino",
+		Columns: []spansql.ColumnDef{
+			{Name: "A", Type: spansql.Type{Base: spansql.Int64}},
+		},
+		PrimaryKey: []spansql.KeyPart{{Column: "A"}},
+	}
+
+	var db database
+	if st := db.ApplyDDL(tbl); st.Code() != codes.OK {
+		t.Fatalf("Creating table: %v", st.Err())
+	}
+
+	// Insert some initial data.
+	tx := db.NewTransaction()
+	tx.Start()
+	err := db.Insert(tx, "Tablino", []string{"A"}, []*structpb.ListValue{
+		listV(stringV("1")),
+		listV(stringV("2")),
+		listV(stringV("4")),
+	})
+	if err != nil {
+		t.Fatalf("Inserting data: %v", err)
+	}
+	if _, err := tx.Commit(); err != nil {
+		t.Fatalf("Committing changes: %v", err)
+	}
+
+	// Now insert "3", and query concurrently.
+	q, err := spansql.ParseQuery(`SELECT * FROM Tablino WHERE A > 2`)
+	if err != nil {
+		t.Fatalf("ParseQuery: %v", err)
+	}
+	var out [][]interface{}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+
+		ri, err := db.Query(q, nil)
+		if err != nil {
+			t.Errorf("Query: %v", err)
+			return
+		}
+		out = slurp(t, ri)
+	}()
+	go func() {
+		defer wg.Done()
+
+		tx := db.NewTransaction()
+		tx.Start()
+		err := db.Insert(tx, "Tablino", []string{"A"}, []*structpb.ListValue{
+			listV(stringV("3")),
+		})
+		if err != nil {
+			t.Errorf("Inserting data: %v", err)
+			return
+		}
+		if _, err := tx.Commit(); err != nil {
+			t.Errorf("Committing changes: %v", err)
+		}
+	}()
+	wg.Wait()
+
+	// We should get either 1 or 2 rows (value 4 should be included, and value 3 might).
+	if n := len(out); n != 1 && n != 2 {
+		t.Fatalf("Concurrent read returned %d rows, want 1 or 2", n)
+	}
+}
+
 func slurp(t *testing.T, ri rowIter) (all [][]interface{}) {
 	t.Helper()
 	for {
@@ -720,6 +839,11 @@ func stringV(s string) *structpb.Value                { return &structpb.Value{K
 func floatV(f float64) *structpb.Value                { return &structpb.Value{Kind: &structpb.Value_NumberValue{f}} }
 func boolV(b bool) *structpb.Value                    { return &structpb.Value{Kind: &structpb.Value_BoolValue{b}} }
 func nullV() *structpb.Value                          { return &structpb.Value{Kind: &structpb.Value_NullValue{}} }
+
+func stringParam(s string) queryParam { return queryParam{Value: s, Type: stringType} }
+func intParam(i int64) queryParam     { return queryParam{Value: i, Type: int64Type} }
+func floatParam(f float64) queryParam { return queryParam{Value: f, Type: float64Type} }
+func nullParam() queryParam           { return queryParam{Value: nil} }
 
 func TestRowCmp(t *testing.T) {
 	r := func(x ...interface{}) []interface{} { return x }

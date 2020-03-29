@@ -19,6 +19,7 @@ package spannertest
 // This file contains the part of the Spanner fake that evaluates expressions.
 
 import (
+	"bytes"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -32,6 +33,9 @@ type evalContext struct {
 	// cols and row are set during expr evaluation.
 	cols []colInfo
 	row  row
+
+	// If there are visible aliases, they are populated here.
+	aliases map[string]spansql.Expr
 
 	params queryParams
 }
@@ -54,7 +58,7 @@ func (ec evalContext) evalBoolExpr(be spansql.BoolExpr) (bool, error) {
 		return false, fmt.Errorf("unhandled BoolExpr %T", be)
 	case spansql.BoolLiteral:
 		return bool(be), nil
-	case spansql.ID, spansql.Paren:
+	case spansql.ID, spansql.Paren, spansql.InOp: // InOp is a bit weird.
 		e, err := ec.evalExpr(be)
 		if err != nil {
 			return false, err
@@ -331,11 +335,11 @@ func (ec evalContext) evalExpr(e spansql.Expr) (interface{}, error) {
 	case spansql.ID:
 		return ec.evalID(e)
 	case spansql.Param:
-		v, ok := ec.params[string(e)]
+		qp, ok := ec.params[string(e)]
 		if !ok {
 			return 0, fmt.Errorf("unbound param %s", e.SQL())
 		}
-		return v, nil
+		return qp.Value, nil
 	case spansql.IntegerLiteral:
 		return int64(e), nil
 	case spansql.FloatLiteral:
@@ -356,6 +360,53 @@ func (ec evalContext) evalExpr(e spansql.Expr) (interface{}, error) {
 		return ec.evalBoolExpr(e)
 	case spansql.ComparisonOp:
 		return ec.evalBoolExpr(e)
+	case spansql.InOp:
+		// This is implemented here in evalExpr instead of evalBoolExpr
+		// because it can return FALSE/TRUE/NULL.
+		// The docs are a bit confusing here, so there's probably some bugs here around NULL handling.
+
+		if len(e.RHS) == 0 {
+			// "IN with an empty right side expression is always FALSE".
+			return e.Neg, nil
+		}
+		lhs, err := ec.evalExpr(e.LHS)
+		if err != nil {
+			return false, err
+		}
+		if lhs == nil {
+			// "IN with a NULL left side expression and a non-empty right side expression is always NULL".
+			return nil, nil
+		}
+		var b bool
+		for _, rhse := range e.RHS {
+			rhs, err := ec.evalExpr(rhse)
+			if err != nil {
+				return false, err
+			}
+			if !e.Unnest {
+				if lhs == rhs {
+					b = true
+				}
+			} else {
+				if rhs == nil {
+					// "IN UNNEST(<NULL array>) returns FALSE (not NULL)".
+					return e.Neg, nil
+				}
+				arr, ok := rhs.([]interface{})
+				if !ok {
+					return nil, fmt.Errorf("UNNEST argument evaluated as %T, want array", rhs)
+				}
+				for _, rhs := range arr {
+					if lhs == rhs {
+						b = true
+					}
+				}
+			}
+		}
+		if e.Neg {
+			b = !b
+		}
+		return b, nil
 	case spansql.IsOp:
 		return ec.evalBoolExpr(e)
 	case aggSentinel:
@@ -376,34 +427,45 @@ func (ec evalContext) evalExpr(e spansql.Expr) (interface{}, error) {
 }
 
 func (ec evalContext) evalID(id spansql.ID) (interface{}, error) {
-	// TODO: look beyond column names.
 	for i, col := range ec.cols {
 		if col.Name == string(id) {
 			return ec.row.copyDataElem(i), nil
 		}
 	}
+	if e, ok := ec.aliases[string(id)]; ok {
+		// Make a copy of the context without this alias
+		// to prevent an evaluation cycle.
+		innerEC := ec
+		innerEC.aliases = make(map[string]spansql.Expr)
+		for alias, e := range ec.aliases {
+			if alias != string(id) {
+				innerEC.aliases[alias] = e
+			}
+		}
+		return innerEC.evalExpr(e)
+	}
 	return nil, fmt.Errorf("couldn't resolve identifier %s", string(id))
 }
 
-func evalLimit(lim spansql.Limit, params queryParams) (int64, error) {
-	switch lim := lim.(type) {
+func evalLiteralOrParam(lop spansql.LiteralOrParam, params queryParams) (int64, error) {
+	switch v := lop.(type) {
 	case spansql.IntegerLiteral:
-		return int64(lim), nil
+		return int64(v), nil
 	case spansql.Param:
-		return paramAsInteger(lim, params)
+		return paramAsInteger(v, params)
 	default:
-		return 0, fmt.Errorf("LIMIT with %T not supported", lim)
+		return 0, fmt.Errorf("LiteralOrParam with %T not supported", v)
 	}
 }
 
 func paramAsInteger(p spansql.Param, params queryParams) (int64, error) {
-	v, ok := params[string(p)]
+	qp, ok := params[string(p)]
 	if !ok {
 		return 0, fmt.Errorf("unbound param %s", p.SQL())
 	}
-	switch v := v.(type) {
+	switch v := qp.Value.(type) {
 	default:
-		return 0, fmt.Errorf("can't interpret parameter %s value of type %T as integer", p.SQL(), v)
+		return 0, fmt.Errorf("can't interpret parameter %s (%s) value of type %T as integer", p.SQL(), qp.Type.SQL(), v)
 	case int64:
 		return v, nil
 	case string:
@@ -489,6 +551,8 @@ func compareVals(x, y interface{}) int {
 	case string:
 		// This handles DATE and TIMESTAMP too.
 		return strings.Compare(x, y.(string))
+	case []byte:
+		return bytes.Compare(x, y.([]byte))
 	}
 }
 
@@ -522,6 +586,12 @@ func (ec evalContext) colInfo(e spansql.Expr) (colInfo, error) {
 				return col, nil
 			}
 		}
+	case spansql.Param:
+		qp, ok := ec.params[string(e)]
+		if !ok {
+			return colInfo{}, fmt.Errorf("unbound param %s", e.SQL())
+		}
+		return colInfo{Type: qp.Type}, nil
 	case spansql.Paren:
 		return ec.colInfo(e.Expr)
 	case spansql.NullLiteral:

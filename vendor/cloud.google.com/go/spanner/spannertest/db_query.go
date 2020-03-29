@@ -39,7 +39,7 @@ The order of operations among those supported by Cloud Spanner is
 	SELECT
 	DISTINCT
 	ORDER BY
-	OFFSET [TODO]
+	OFFSET
 	LIMIT
 */
 
@@ -129,7 +129,7 @@ func toRawIter(ri rowIter) (*rawIter, error) {
 		} else if err != nil {
 			return nil, err
 		}
-		raw.rows = append(raw.rows, row)
+		raw.rows = append(raw.rows, row.copyAllData())
 	}
 	return raw, nil
 }
@@ -171,18 +171,25 @@ type selIter struct {
 
 func (si selIter) Cols() []colInfo { return si.cis }
 func (si selIter) Next() (row, error) {
-	row, err := si.ri.Next()
+	r, err := si.ri.Next()
 	if err != nil {
 		return nil, err
 	}
-	si.ec.row = row
+	si.ec.row = r
 
-	selectStar := len(si.list) == 1 && si.list[0] == spansql.Star
-	if selectStar {
-		return row, nil
+	var out row
+	for _, e := range si.list {
+		if e == spansql.Star {
+			out = append(out, r...)
+		} else {
+			v, err := si.ec.evalExpr(e)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, v)
+		}
 	}
-
-	return si.ec.evalExprList(si.list)
+	return out, nil
 }
 
 // distinctIter applies a DISTINCT filter.
@@ -216,6 +223,28 @@ func (di *distinctIter) Next() (row, error) {
 	}
 }
 
+// offsetIter applies an OFFSET clause.
+type offsetIter struct {
+	ri   rowIter
+	skip int64
+}
+
+func (oi *offsetIter) Cols() []colInfo { return oi.ri.Cols() }
+func (oi *offsetIter) Next() (row, error) {
+	for oi.skip > 0 {
+		_, err := oi.ri.Next()
+		if err != nil {
+			return nil, err
+		}
+		oi.skip--
+	}
+	row, err := oi.ri.Next()
+	if err != nil {
+		return nil, err
+	}
+	return row, nil
+}
+
 // limitIter applies a LIMIT clause.
 type limitIter struct {
 	ri  rowIter
@@ -235,7 +264,12 @@ func (li *limitIter) Next() (row, error) {
 	return row, nil
 }
 
-type queryParams map[string]interface{}
+type queryParam struct {
+	Value interface{}
+	Type  spansql.Type
+}
+
+type queryParams map[string]queryParam
 
 func (d *database) Query(q spansql.Query, params queryParams) (rowIter, error) {
 	// If there's an ORDER BY clause, extend the query to include the expressions we need
@@ -272,11 +306,17 @@ func (d *database) Query(q spansql.Query, params queryParams) (rowIter, error) {
 		ri = raw
 	}
 
-	// TODO: OFFSET
-
-	// Apply LIMIT.
+	// Apply LIMIT, OFFSET.
 	if q.Limit != nil {
-		lim, err := evalLimit(q.Limit, params)
+		if q.Offset != nil {
+			off, err := evalLiteralOrParam(q.Offset, params)
+			if err != nil {
+				return nil, err
+			}
+			ri = &offsetIter{ri: ri, skip: off}
+		}
+
+		lim, err := evalLiteralOrParam(q.Limit, params)
 		if err != nil {
 			return nil, err
 		}
@@ -307,16 +347,15 @@ func (d *database) evalSelect(sel spansql.Select, params queryParams) (ri rowIte
 		defer t.mu.Unlock()
 		ri = &tableIter{t: t}
 		ec.cols = t.cols
-	}
-	defer func() {
-		// If we're about to return a tableIter, convert it to a rawIter
+
+		// On the way out, convert the result to a rawIter
 		// so that the table may be safely unlocked.
-		if evalErr == nil {
-			if ti, ok := ri.(*tableIter); ok {
-				ri, evalErr = toRawIter(ti)
+		defer func() {
+			if evalErr == nil {
+				ri, evalErr = toRawIter(ri)
 			}
-		}
-	}()
+		}()
+	}
 
 	// Apply WHERE.
 	if sel.Where != nil {
@@ -332,6 +371,13 @@ func (d *database) evalSelect(sel spansql.Select, params queryParams) (ri rowIte
 	// aggregation happens next.
 	var rowGroups [][2]int // Sequence of half-open intervals of row numbers.
 	if len(sel.GroupBy) > 0 {
+		// Load aliases visible to this GROUP BY.
+		ec.aliases = make(map[string]spansql.Expr)
+		for i, alias := range sel.ListAliases {
+			ec.aliases[alias] = sel.List[i]
+		}
+		// TODO: Add aliases for "1", "2", etc.
+
 		raw, err := toRawIter(ri)
 		if err != nil {
 			return nil, err
@@ -339,10 +385,6 @@ func (d *database) evalSelect(sel spansql.Select, params queryParams) (ri rowIte
 		keys := make([][]interface{}, 0, len(raw.rows))
 		for _, row := range raw.rows {
 			// Evaluate sort key for this row.
-			// TODO: Support referring to expression names in the SELECT list;
-			// this may require passing through sel.List, or maybe mutating
-			// sel.GroupBy to copy the referenced values. This will also be
-			// required to support grouping by aliases.
 			ec.row = row
 			key, err := ec.evalExprList(sel.GroupBy)
 			if err != nil {
@@ -369,6 +411,9 @@ func (d *database) evalSelect(sel spansql.Select, params queryParams) (ri rowIte
 		if len(keys) > 0 {
 			rowGroups = append(rowGroups, [2]int{start, len(keys)})
 		}
+
+		// Clear aliases, since they aren't visible elsewhere.
+		ec.aliases = nil
 
 		ri = raw
 	}
@@ -398,6 +443,7 @@ func (d *database) evalSelect(sel spansql.Select, params queryParams) (ri rowIte
 		}
 		if len(rowGroups) == 0 {
 			// No grouping, so aggregation applies to the entire table (e.g. COUNT(*)).
+			// This may result in a [0,0) entry for empty inputs.
 			rowGroups = [][2]int{{0, len(raw.rows)}}
 		}
 		fexpr := sel.List[aggI].(spansql.Func)
@@ -405,6 +451,14 @@ func (d *database) evalSelect(sel spansql.Select, params queryParams) (ri rowIte
 		starArg := fexpr.Args[0] == spansql.Star
 		if starArg && !fn.AcceptStar {
 			return nil, fmt.Errorf("aggregate function %s does not accept * as an argument", fexpr.Name)
+		}
+		var argType spansql.Type
+		if !starArg {
+			ci, err := ec.colInfo(fexpr.Args[0])
+			if err != nil {
+				return nil, err
+			}
+			argType = ci.Type
 		}
 
 		// Prepare output.
@@ -433,18 +487,28 @@ func (d *database) evalSelect(sel spansql.Select, params queryParams) (ri rowIte
 					values = append(values, x)
 				}
 			}
-			x, typ, err := fn.Eval(values)
+			x, typ, err := fn.Eval(values, argType)
 			if err != nil {
 				return nil, err
 			}
 			aggType = typ
+
+			var outRow row
 			// Output for the row group is the first row of the group (arbitrary,
 			// but it should be representative), and the aggregate value.
 			// TODO: Should this exclude the aggregated expressions so they can't be selected?
-			repRow := raw.rows[rg[0]]
-			var outRow row
-			for i := range repRow {
-				outRow = append(outRow, repRow.copyDataElem(i))
+			// If the row group is empty then only the aggregation value is used;
+			// this covers things like COUNT(*) with no matching rows.
+			if rg[0] < len(raw.rows) {
+				repRow := raw.rows[rg[0]]
+				for i := range repRow {
+					outRow = append(outRow, repRow.copyDataElem(i))
+				}
+			} else {
+				// Fill with NULLs to keep the rows and colInfo aligned.
+				for i := 0; i < len(rawOut.cols); i++ {
+					outRow = append(outRow, nil)
+				}
 			}
 			outRow = append(outRow, x)
 			rawOut.rows = append(rawOut.rows, outRow)
@@ -473,16 +537,19 @@ func (d *database) evalSelect(sel spansql.Select, params queryParams) (ri rowIte
 
 	// Apply SELECT list.
 	var colInfos []colInfo
-	// Is this a `SELECT *` query?
-	selectStar := len(sel.List) == 1 && sel.List[0] == spansql.Star
-	if selectStar {
-		// Every column will appear in the output.
-		colInfos = ec.cols
-	} else {
-		for _, e := range sel.List {
+	for i, e := range sel.List {
+		if e == spansql.Star {
+			colInfos = append(colInfos, ec.cols...)
+		} else {
 			ci, err := ec.colInfo(e)
 			if err != nil {
 				return nil, err
+			}
+			if len(sel.ListAliases) > 0 {
+				alias := sel.ListAliases[i]
+				if alias != "" {
+					ci.Name = alias
+				}
 			}
 			// TODO: deal with ci.Name == ""?
 			colInfos = append(colInfos, ci)

@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"golang.org/x/tools/internal/jsonrpc2"
-	"golang.org/x/tools/internal/lsp/telemetry"
-	"golang.org/x/tools/internal/telemetry/trace"
+	"golang.org/x/tools/internal/lsp/debug/tag"
+	"golang.org/x/tools/internal/telemetry/event"
 )
 
 type telemetryHandler struct{}
@@ -34,22 +34,23 @@ func (h telemetryHandler) Request(ctx context.Context, conn *jsonrpc2.Conn, dire
 	}
 	stats := &rpcStats{
 		method:    r.Method,
+		id:        r.ID,
 		start:     time.Now(),
 		direction: direction,
 		payload:   r.Params,
 	}
 	ctx = context.WithValue(ctx, statsKey, stats)
-	mode := telemetry.Outbound
+	mode := tag.Outbound
 	if direction == jsonrpc2.Receive {
-		mode = telemetry.Inbound
+		mode = tag.Inbound
 	}
-	ctx, stats.close = trace.StartSpan(ctx, r.Method,
-		telemetry.Method.Of(r.Method),
-		telemetry.RPCDirection.Of(mode),
-		telemetry.RPCID.Of(r.ID),
+	ctx, stats.close = event.StartSpan(ctx, r.Method,
+		tag.Method.Of(r.Method),
+		tag.RPCDirection.Of(mode),
+		tag.RPCID.Of(r.ID.String()),
 	)
-	telemetry.Started.Record(ctx, 1)
-	_, stats.delivering = trace.StartSpan(ctx, "queued")
+	event.Record(ctx, tag.Started.Of(1))
+	_, stats.delivering = event.StartSpan(ctx, "queued")
 	return ctx
 }
 
@@ -60,27 +61,25 @@ func (h telemetryHandler) Response(ctx context.Context, conn *jsonrpc2.Conn, dir
 func (h telemetryHandler) Done(ctx context.Context, err error) {
 	stats := h.getStats(ctx)
 	if err != nil {
-		ctx = telemetry.StatusCode.With(ctx, "ERROR")
+		ctx = event.Label(ctx, tag.StatusCode.Of("ERROR"))
 	} else {
-		ctx = telemetry.StatusCode.With(ctx, "OK")
+		ctx = event.Label(ctx, tag.StatusCode.Of("OK"))
 	}
 	elapsedTime := time.Since(stats.start)
 	latencyMillis := float64(elapsedTime) / float64(time.Millisecond)
-	telemetry.Latency.Record(ctx, latencyMillis)
+	event.Record(ctx, tag.Latency.Of(latencyMillis))
 	stats.close()
 }
 
 func (h telemetryHandler) Read(ctx context.Context, bytes int64) context.Context {
-	telemetry.SentBytes.Record(ctx, bytes)
+	event.Record(ctx, tag.SentBytes.Of(bytes))
 	return ctx
 }
 
 func (h telemetryHandler) Wrote(ctx context.Context, bytes int64) context.Context {
-	telemetry.ReceivedBytes.Record(ctx, bytes)
+	event.Record(ctx, tag.ReceivedBytes.Of(bytes))
 	return ctx
 }
-
-const eol = "\r\n\r\n\r\n"
 
 func (h telemetryHandler) Error(ctx context.Context, err error) {
 }
@@ -88,7 +87,7 @@ func (h telemetryHandler) Error(ctx context.Context, err error) {
 func (h telemetryHandler) getStats(ctx context.Context) *rpcStats {
 	stats, ok := ctx.Value(statsKey).(*rpcStats)
 	if !ok || stats == nil {
-		method, ok := ctx.Value(telemetry.Method).(string)
+		method, ok := ctx.Value(tag.Method).(string)
 		if !ok {
 			method = "???"
 		}

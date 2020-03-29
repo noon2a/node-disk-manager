@@ -12,13 +12,11 @@ import (
 	"strings"
 
 	"golang.org/x/tools/go/packages"
+	"golang.org/x/tools/internal/lsp/debug/tag"
 	"golang.org/x/tools/internal/lsp/source"
-	"golang.org/x/tools/internal/lsp/telemetry"
 	"golang.org/x/tools/internal/packagesinternal"
 	"golang.org/x/tools/internal/span"
-	"golang.org/x/tools/internal/telemetry/log"
-	"golang.org/x/tools/internal/telemetry/tag"
-	"golang.org/x/tools/internal/telemetry/trace"
+	"golang.org/x/tools/internal/telemetry/event"
 	errors "golang.org/x/xerrors"
 )
 
@@ -45,6 +43,9 @@ func (s *snapshot) load(ctx context.Context, scopes ...interface{}) error {
 	for _, scope := range scopes {
 		switch scope := scope.(type) {
 		case packagePath:
+			if scope == "command-line-arguments" {
+				panic("attempted to load command-line-arguments")
+			}
 			// The only time we pass package paths is when we're doing a
 			// partial workspace load. In those cases, the paths came back from
 			// go list and should already be GOPATH-vendorized when appropriate.
@@ -79,7 +80,7 @@ func (s *snapshot) load(ctx context.Context, scopes ...interface{}) error {
 	}
 	sort.Strings(query) // for determinism
 
-	ctx, done := trace.StartSpan(ctx, "cache.view.load", telemetry.Query.Of(query))
+	ctx, done := event.StartSpan(ctx, "cache.view.load", tag.Query.Of(query))
 	defer done()
 
 	cfg := s.Config(ctx)
@@ -92,13 +93,13 @@ func (s *snapshot) load(ctx context.Context, scopes ...interface{}) error {
 		return ctx.Err()
 	}
 
-	log.Print(ctx, "go/packages.Load", tag.Of("snapshot", s.ID()), tag.Of("query", query), tag.Of("packages", len(pkgs)))
+	event.Print(ctx, "go/packages.Load", tag.Snapshot.Of(s.ID()), tag.Directory.Of(cfg.Dir), tag.Query.Of(query), tag.PackageCount.Of(len(pkgs)))
 	if len(pkgs) == 0 {
 		return err
 	}
 	for _, pkg := range pkgs {
 		if !containsDir || s.view.Options().VerboseOutput {
-			log.Print(ctx, "go/packages.Load", tag.Of("snapshot", s.ID()), tag.Of("package", pkg.PkgPath), tag.Of("files", pkg.CompiledGoFiles))
+			event.Print(ctx, "go/packages.Load", tag.Snapshot.Of(s.ID()), tag.PackagePath.Of(pkg.PkgPath), tag.Files.Of(pkg.CompiledGoFiles))
 		}
 		// Ignore packages with no sources, since we will never be able to
 		// correctly invalidate that metadata.
@@ -113,7 +114,7 @@ func (s *snapshot) load(ctx context.Context, scopes ...interface{}) error {
 			continue
 		}
 		// Skip test main packages.
-		if isTestMain(ctx, pkg, s.view.gocache) {
+		if isTestMain(pkg, s.view.gocache) {
 			continue
 		}
 		// Set the metadata for this package.
@@ -160,7 +161,7 @@ func (s *snapshot) setMetadata(ctx context.Context, pkgPath packagePath, pkg *pa
 	}
 
 	copied := map[packageID]struct{}{
-		id: struct{}{},
+		id: {},
 	}
 	for k, v := range seen {
 		copied[k] = v
@@ -181,7 +182,7 @@ func (s *snapshot) setMetadata(ctx context.Context, pkgPath packagePath, pkg *pa
 		}
 		if s.getMetadata(importID) == nil {
 			if _, err := s.setMetadata(ctx, importPkgPath, importPkg, cfg, copied); err != nil {
-				log.Error(ctx, "error in dependency", err)
+				event.Error(ctx, "error in dependency", err)
 			}
 		}
 	}
@@ -217,7 +218,7 @@ func (s *snapshot) setMetadata(ctx context.Context, pkgPath packagePath, pkg *pa
 	return m, nil
 }
 
-func isTestMain(ctx context.Context, pkg *packages.Package, gocache string) bool {
+func isTestMain(pkg *packages.Package, gocache string) bool {
 	// Test mains must have an import path that ends with ".test".
 	if !strings.HasSuffix(pkg.PkgPath, ".test") {
 		return false

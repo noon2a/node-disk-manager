@@ -6,16 +6,14 @@ package lsp
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"sync"
 
+	"golang.org/x/tools/internal/lsp/debug/tag"
 	"golang.org/x/tools/internal/lsp/mod"
 	"golang.org/x/tools/internal/lsp/protocol"
 	"golang.org/x/tools/internal/lsp/source"
-	"golang.org/x/tools/internal/lsp/telemetry"
-	"golang.org/x/tools/internal/telemetry/log"
-	"golang.org/x/tools/internal/telemetry/trace"
+	"golang.org/x/tools/internal/telemetry/event"
 	"golang.org/x/tools/internal/xcontext"
 )
 
@@ -42,7 +40,7 @@ func (s *Server) diagnoseSnapshot(snapshot source.Snapshot) {
 // diagnose is a helper function for running diagnostics with a given context.
 // Do not call it directly.
 func (s *Server) diagnose(ctx context.Context, snapshot source.Snapshot, alwaysAnalyze bool) map[diagnosticKey][]source.Diagnostic {
-	ctx, done := trace.StartSpan(ctx, "lsp:background-worker")
+	ctx, done := event.StartSpan(ctx, "lsp:background-worker")
 	defer done()
 
 	// Wait for a free diagnostics slot.
@@ -63,7 +61,7 @@ func (s *Server) diagnose(ctx context.Context, snapshot source.Snapshot, alwaysA
 		return nil
 	}
 	if err != nil {
-		log.Error(ctx, "diagnose: could not generate diagnostics for go.mod file", err)
+		event.Error(ctx, "warning: diagnose go.mod", err, tag.Directory.Of(snapshot.View().Folder))
 	}
 	// Ensure that the reports returned from mod.Diagnostics are only related to the
 	// go.mod file for the module.
@@ -87,19 +85,7 @@ func (s *Server) diagnose(ctx context.Context, snapshot source.Snapshot, alwaysA
 		return nil
 	}
 	if err != nil {
-		// If we encounter a genuine error when getting workspace packages,
-		// notify the user.
-		s.showedInitialErrorMu.Lock()
-		if !s.showedInitialError {
-			err := s.client.ShowMessage(ctx, &protocol.ShowMessageParams{
-				Type:    protocol.Error,
-				Message: fmt.Sprintf("Your workspace is misconfigured: %s. Please see https://github.com/golang/tools/blob/master/gopls/doc/troubleshooting.md for more information or file an issue (https://github.com/golang/go/issues/new) if you believe this is a mistake.", err.Error()),
-			})
-			s.showedInitialError = err == nil
-		}
-		s.showedInitialErrorMu.Unlock()
-
-		log.Error(ctx, "diagnose: no workspace packages", err, telemetry.Snapshot.Of(snapshot.ID()), telemetry.Directory.Of(snapshot.View().Folder))
+		event.Error(ctx, "failed to load workspace packages, skipping diagnostics", err, tag.Snapshot.Of(snapshot.ID()), tag.Directory.Of(snapshot.View().Folder))
 		return nil
 	}
 	for _, ph := range wsPackages {
@@ -117,16 +103,15 @@ func (s *Server) diagnose(ctx context.Context, snapshot source.Snapshot, alwaysA
 			// Check if might want to warn the user about their build configuration.
 			if warn && !snapshot.View().ValidBuildConfiguration() {
 				s.client.ShowMessage(ctx, &protocol.ShowMessageParams{
-					Type: protocol.Warning,
-					// TODO(rstambler): We should really be able to point to a link on the website.
-					Message: `You are neither in a module nor in your GOPATH. Please see https://github.com/golang/go/wiki/Modules for information on how to set up your Go project.`,
+					Type:    protocol.Warning,
+					Message: `You are neither in a module nor in your GOPATH. If you are using modules, please open your editor at the directory containing the go.mod. If you believe this warning is incorrect, please file an issue: https://github.com/golang/go/issues/new.`,
 				})
 			}
 			if ctx.Err() != nil {
 				return
 			}
 			if err != nil {
-				log.Error(ctx, "diagnose: could not generate diagnostics for package", err, telemetry.Snapshot.Of(snapshot.ID()), telemetry.Package.Of(ph.ID()))
+				event.Error(ctx, "warning: diagnose package", err, tag.Snapshot.Of(snapshot.ID()), tag.Package.Of(ph.ID()))
 				return
 			}
 			reportsMu.Lock()
@@ -203,7 +188,7 @@ func (s *Server) publishReports(ctx context.Context, snapshot source.Snapshot, r
 			Version:     key.id.Version,
 		}); err != nil {
 			if ctx.Err() == nil {
-				log.Error(ctx, "publishReports: failed to deliver diagnostic", err, telemetry.File.Tag(ctx))
+				event.Error(ctx, "publishReports: failed to deliver diagnostic", err, tag.URI.Of(key.id.URI))
 			}
 			continue
 		}

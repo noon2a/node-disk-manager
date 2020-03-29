@@ -88,6 +88,7 @@ struct termios2 {
 #include <linux/fanotify.h>
 #include <linux/filter.h>
 #include <linux/fs.h>
+#include <linux/fsverity.h>
 #include <linux/genetlink.h>
 #include <linux/hdreg.h>
 #include <linux/icmpv6.h>
@@ -205,6 +206,8 @@ union sockaddr_all {
 	struct sockaddr_ll s5;
 	struct sockaddr_nl s6;
 	struct sockaddr_pppox s7;
+	struct sockaddr_l2tpip s8;
+	struct sockaddr_l2tpip6 s9;
 };
 
 struct sockaddr_any {
@@ -509,6 +512,10 @@ type RawSockaddrPPPoX [C.sizeof_struct_sockaddr_pppox]byte
 
 type RawSockaddrTIPC C.struct_sockaddr_tipc
 
+type RawSockaddrL2TPIP C.struct_sockaddr_l2tpip
+
+type RawSockaddrL2TPIP6 C.struct_sockaddr_l2tpip6
+
 type RawSockaddr C.struct_sockaddr
 
 type RawSockaddrAny C.struct_sockaddr_any
@@ -561,6 +568,8 @@ const (
 	SizeofSockaddrXDP       = C.sizeof_struct_sockaddr_xdp
 	SizeofSockaddrPPPoX     = C.sizeof_struct_sockaddr_pppox
 	SizeofSockaddrTIPC      = C.sizeof_struct_sockaddr_tipc
+	SizeofSockaddrL2TPIP    = C.sizeof_struct_sockaddr_l2tpip
+	SizeofSockaddrL2TPIP6   = C.sizeof_struct_sockaddr_l2tpip6
 	SizeofLinger            = C.sizeof_struct_linger
 	SizeofIovec             = C.sizeof_struct_iovec
 	SizeofIPMreq            = C.sizeof_struct_ip_mreq
@@ -2275,3 +2284,9 @@ const (
 	DEVLINK_DPIPE_HEADER_IPV4                 = C.DEVLINK_DPIPE_HEADER_IPV4
 	DEVLINK_DPIPE_HEADER_IPV6                 = C.DEVLINK_DPIPE_HEADER_IPV6
 )
+
+// fs-verity
+
+type FsverityDigest C.struct_fsverity_digest
+
+type FsverityEnableArg C.struct_fsverity_enable_arg

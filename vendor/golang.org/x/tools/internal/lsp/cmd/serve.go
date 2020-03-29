@@ -17,6 +17,7 @@ import (
 	"golang.org/x/tools/internal/lsp/debug"
 	"golang.org/x/tools/internal/lsp/lsprpc"
 	"golang.org/x/tools/internal/lsp/protocol"
+	"golang.org/x/tools/internal/telemetry/event"
 	"golang.org/x/tools/internal/tool"
 )
 
@@ -30,6 +31,11 @@ type Serve struct {
 	IdleTimeout time.Duration `flag:"listen.timeout" help:"when used with -listen, shut down the server when there are no connected clients for this duration"`
 	Trace       bool          `flag:"rpc.trace" help:"print the full rpc trace in lsp inspector format"`
 	Debug       string        `flag:"debug" help:"serve debug information on the supplied address"`
+
+	RemoteListenTimeout time.Duration `flag:"remote.listen.timeout" help:"when used with -remote=auto, the listen.timeout used when auto-starting the remote"`
+	RemoteDebug         string        `flag:"remote.debug" help:"when used with -remote=auto, the debug address used when auto-starting the remote"`
+	RemoteLogfile       string        `flag:"remote.logfile" help:"when used with -remote=auto, the filename for the remote daemon to log to"`
+	DisableExport       bool          `flag:"telemetry.disable" help:"TEMPORARY WORKAROUND: disable telemetry processing entirely. This flag will be removed in the future, once telemetry issues are resolved."`
 
 	app *Application
 }
@@ -56,6 +62,12 @@ func (s *Serve) Run(ctx context.Context, args ...string) error {
 		return tool.CommandLineErrorf("server does not take arguments, got %v", args)
 	}
 
+	// Temporary workaround for golang.org/issues/38042: allow disabling
+	// telemetry export.
+	if s.DisableExport {
+		event.SetExporter(nil)
+	}
+
 	di := debug.GetInstance(ctx)
 	if di != nil {
 		closeLog, err := di.SetLogFile(s.Logfile)
@@ -71,9 +83,14 @@ func (s *Serve) Run(ctx context.Context, args ...string) error {
 	var ss jsonrpc2.StreamServer
 	if s.app.Remote != "" {
 		network, addr := parseAddr(s.app.Remote)
-		ss = lsprpc.NewForwarder(network, addr, true)
+		ss = lsprpc.NewForwarder(network, addr,
+			lsprpc.WithTelemetry(true),
+			lsprpc.RemoteDebugAddress(s.RemoteDebug),
+			lsprpc.RemoteListenTimeout(s.RemoteListenTimeout),
+			lsprpc.RemoteLogfile(s.RemoteLogfile),
+		)
 	} else {
-		ss = lsprpc.NewStreamServer(cache.New(ctx, s.app.options), true)
+		ss = lsprpc.NewStreamServer(cache.New(ctx, s.app.options), lsprpc.WithTelemetry(true))
 	}
 
 	if s.Address != "" {

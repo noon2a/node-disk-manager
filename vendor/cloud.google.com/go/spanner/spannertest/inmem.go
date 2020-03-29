@@ -142,8 +142,9 @@ func timestampProto(t time.Time) *timestamppb.Timestamp {
 
 // lro represents a Long-Running Operation, generally a schema change.
 type lro struct {
-	mu    sync.Mutex
-	state *lropb.Operation
+	mu      sync.Mutex
+	state   *lropb.Operation
+	waiters bool // Whether anyone appears to be waiting.
 }
 
 func (l *lro) State() *lropb.Operation {
@@ -222,6 +223,12 @@ func (s *server) GetOperation(ctx context.Context, req *lropb.GetOperationReques
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "unknown LRO %q", req.Name)
 	}
+
+	// Someone is waiting on this LRO. Disable sleeping in its Run method.
+	lro.mu.Lock()
+	lro.waiters = true
+	lro.mu.Unlock()
+
 	return lro.State(), nil
 }
 
@@ -272,7 +279,14 @@ func (l *lro) Run(s *server, stmts []spansql.DDLStmt) {
 	ctx := context.Background()
 
 	for _, stmt := range stmts {
-		time.Sleep(100 * time.Millisecond)
+		l.mu.Lock()
+		waiters := l.waiters
+		l.mu.Unlock()
+		if !waiters {
+			// Simulate delayed DDL application, but only if nobody is waiting.
+			time.Sleep(100 * time.Millisecond)
+		}
+
 		if st := s.runOneDDL(ctx, stmt); st.Code() != codes.OK {
 			l.mu.Lock()
 			l.state.Done = true
@@ -290,6 +304,16 @@ func (l *lro) Run(s *server, stmts []spansql.DDLStmt) {
 
 func (s *server) runOneDDL(ctx context.Context, stmt spansql.DDLStmt) *status.Status {
 	return s.db.ApplyDDL(stmt)
+}
+
+func (s *server) GetDatabaseDdl(ctx context.Context, req *adminpb.GetDatabaseDdlRequest) (*adminpb.GetDatabaseDdlResponse, error) {
+	s.logf("GetDatabaseDdl(%q)", req.Database)
+
+	var resp adminpb.GetDatabaseDdlResponse
+	for _, stmt := range s.db.GetDDL() {
+		resp.Statements = append(resp.Statements, stmt.SQL())
+	}
+	return &resp, nil
 }
 
 func (s *server) CreateSession(ctx context.Context, req *spannerpb.CreateSessionRequest) (*spannerpb.Session, error) {
@@ -451,7 +475,7 @@ func (s *server) ExecuteSql(ctx context.Context, req *spannerpb.ExecuteSqlReques
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "bad DML: %v", err)
 	}
-	params, err := parseQueryParams(req.GetParams())
+	params, err := parseQueryParams(req.GetParams(), req.ParamTypes)
 	if err != nil {
 		return nil, err
 	}
@@ -485,7 +509,7 @@ func (s *server) ExecuteStreamingSql(req *spannerpb.ExecuteSqlRequest, stream sp
 		return status.Errorf(codes.InvalidArgument, "bad query: %v", err)
 	}
 
-	params, err := parseQueryParams(req.GetParams())
+	params, err := parseQueryParams(req.GetParams(), req.ParamTypes)
 	if err != nil {
 		return err
 	}
@@ -701,18 +725,35 @@ func (s *server) Rollback(ctx context.Context, req *spannerpb.RollbackRequest) (
 
 // TODO: PartitionQuery, PartitionRead
 
-func parseQueryParams(p *structpb.Struct) (queryParams, error) {
+func parseQueryParams(p *structpb.Struct, types map[string]*spannerpb.Type) (queryParams, error) {
 	params := make(queryParams)
 	for k, v := range p.GetFields() {
 		switch v := v.Kind.(type) {
 		default:
 			return nil, fmt.Errorf("unsupported well-known type value kind %T", v)
 		case *structpb.Value_NullValue:
-			params[k] = nil
+			params[k] = queryParam{Value: nil} // TODO: set a type?
 		case *structpb.Value_NumberValue:
-			params[k] = v.NumberValue
+			params[k] = queryParam{Value: v.NumberValue, Type: float64Type}
 		case *structpb.Value_StringValue:
-			params[k] = v.StringValue
+			switch types[k].Code {
+			case spannerpb.TypeCode_INT64:
+				params[k] = queryParam{Value: v.StringValue, Type: int64Type}
+			case spannerpb.TypeCode_TIMESTAMP:
+				params[k] = queryParam{Value: v.StringValue, Type: spansql.Type{Base: spansql.Timestamp}}
+			case spannerpb.TypeCode_DATE:
+				params[k] = queryParam{Value: v.StringValue, Type: spansql.Type{Base: spansql.Date}}
+			case spannerpb.TypeCode_BYTES:
+				b, err := base64.StdEncoding.DecodeString(v.StringValue)
+				if err != nil {
+					return nil, err
+				}
+				params[k] = queryParam{Value: b, Type: spansql.Type{Base: spansql.Bytes, Len: spansql.MaxLen}}
+			default:
+				// All other types represented on the wire as a string are stored internally as strings.
+				// We don't often get a type hint unfortunately, so ths type code here may be wrong.
+				params[k] = queryParam{Value: v.StringValue, Type: stringType}
+			}
 		}
 	}
 	return params, nil

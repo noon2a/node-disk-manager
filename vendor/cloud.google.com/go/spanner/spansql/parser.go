@@ -947,7 +947,7 @@ func (p *parser) parseCreateTable() (*CreateTable, *parseError) {
 
 	/*
 		CREATE TABLE table_name(
-			[column_def, ...] )
+			[column_def, ...] [ table_constraint, ...] )
 			primary_key [, cluster]
 
 		primary_key:
@@ -971,6 +971,15 @@ func (p *parser) parseCreateTable() (*CreateTable, *parseError) {
 
 	ct := &CreateTable{Name: tname, Position: pos}
 	err = p.parseCommaList(func(p *parser) *parseError {
+		if p.sniffTableConstraint() {
+			tc, err := p.parseTableConstraint()
+			if err != nil {
+				return err
+			}
+			ct.Constraints = append(ct.Constraints, tc)
+			return nil
+		}
+
 		cd, err := p.parseColumnDef()
 		if err != nil {
 			return err
@@ -1019,6 +1028,34 @@ func (p *parser) parseCreateTable() (*CreateTable, *parseError) {
 	}
 
 	return ct, nil
+}
+
+func (p *parser) sniffTableConstraint() bool {
+	// Unfortunately the Cloud Spanner grammar is LL(3) because
+	//	CONSTRAINT BOOL
+	// could be the start of a declaration of a column called "CONSTRAINT" of boolean type,
+	// or it could be the start of a foreign key constraint called "BOOL".
+	// We have to sniff up to the third token to see what production it is.
+	// If we have "FOREIGN" and "KEY", this is an unnamed table constraint.
+	// If we have "CONSTRAINT", an identifier and "FOREIGN", this is a table constraint.
+	// Otherwise, this is a column definition.
+
+	if p.sniff("FOREIGN", "KEY") {
+		return true
+	}
+
+	// Store parser state, and peek ahead.
+	// Restore on the way out.
+	orig := *p
+	defer func() { *p = orig }()
+
+	if !p.eat("CONSTRAINT") {
+		return false
+	}
+	if _, err := p.parseTableOrIndexOrColumnName(); err != nil {
+		return false
+	}
+	return p.eat("FOREIGN")
 }
 
 func (p *parser) parseCreateIndex() (*CreateIndex, *parseError) {
@@ -1103,11 +1140,14 @@ func (p *parser) parseAlterTable() (*AlterTable, *parseError) {
 			ALTER TABLE table_name { table_alteration | table_column_alteration }
 
 		table_alteration:
-			{ ADD COLUMN column_def | DROP COLUMN column_name |
-				SET ON DELETE { CASCADE | NO ACTION } }
+			{ ADD [ COLUMN ] column_def
+			| DROP [ COLUMN ] column_name
+			| ADD table_constraint
+			| DROP CONSTRAINT constraint_name
+			| SET ON DELETE { CASCADE | NO ACTION } }
 
 		table_column_alteration:
-			ALTER COLUMN column_name { { scalar_type | array_type } [NOT NULL] | SET options_def }
+			ALTER [ COLUMN ] column_name { { scalar_type | array_type } [NOT NULL] | SET options_def }
 	*/
 
 	if err := p.expect("ALTER"); err != nil {
@@ -1131,6 +1171,16 @@ func (p *parser) parseAlterTable() (*AlterTable, *parseError) {
 	default:
 		return nil, p.errorf("got %q, expected ADD or DROP or SET or ALTER", tok.value)
 	case "ADD":
+		if p.sniff("CONSTRAINT") || p.sniff("FOREIGN") {
+			tc, err := p.parseTableConstraint()
+			if err != nil {
+				return nil, err
+			}
+			a.Alteration = AddConstraint{Constraint: tc}
+			return a, nil
+		}
+
+		// TODO: "COLUMN" is optional.
 		if err := p.expect("COLUMN"); err != nil {
 			return nil, err
 		}
@@ -1141,6 +1191,16 @@ func (p *parser) parseAlterTable() (*AlterTable, *parseError) {
 		a.Alteration = AddColumn{Def: cd}
 		return a, nil
 	case "DROP":
+		if p.eat("CONSTRAINT") {
+			name, err := p.parseTableOrIndexOrColumnName()
+			if err != nil {
+				return nil, err
+			}
+			a.Alteration = DropConstraint{Name: name}
+			return a, nil
+		}
+
+		// TODO: "COLUMN" is optional.
 		if err := p.expect("COLUMN"); err != nil {
 			return nil, err
 		}
@@ -1164,6 +1224,7 @@ func (p *parser) parseAlterTable() (*AlterTable, *parseError) {
 		a.Alteration = SetOnDelete{Action: od}
 		return a, nil
 	case "ALTER":
+		// TODO: "COLUMN" is optional.
 		if err := p.expect("COLUMN"); err != nil {
 			return nil, err
 		}
@@ -1322,6 +1383,78 @@ func (p *parser) parseKeyPart() (KeyPart, *parseError) {
 	return kp, nil
 }
 
+func (p *parser) parseTableConstraint() (TableConstraint, *parseError) {
+	debugf("parseTableConstraint: %v", p)
+
+	/*
+		table_constraint:
+			[ CONSTRAINT constraint_name ]
+			foreign_key
+	*/
+
+	if p.eat("CONSTRAINT") {
+		pos := p.Pos()
+		// Named foreign key.
+		cname, err := p.parseTableOrIndexOrColumnName()
+		if err != nil {
+			return TableConstraint{}, err
+		}
+		fk, err := p.parseForeignKey()
+		if err != nil {
+			return TableConstraint{}, err
+		}
+		return TableConstraint{
+			Name:       cname,
+			ForeignKey: fk,
+			Position:   pos,
+		}, nil
+	}
+
+	// Unnamed foreign key.
+	fk, err := p.parseForeignKey()
+	if err != nil {
+		return TableConstraint{}, err
+	}
+	return TableConstraint{
+		ForeignKey: fk,
+		Position:   fk.Position,
+	}, nil
+}
+
+func (p *parser) parseForeignKey() (ForeignKey, *parseError) {
+	debugf("parseForeignKey: %v", p)
+
+	/*
+		foreign_key:
+			FOREIGN KEY ( column_name [, ... ] ) REFERENCES ref_table ( ref_column [, ... ] )
+	*/
+
+	if err := p.expect("FOREIGN"); err != nil {
+		return ForeignKey{}, err
+	}
+	fk := ForeignKey{Position: p.Pos()}
+	if err := p.expect("KEY"); err != nil {
+		return ForeignKey{}, err
+	}
+	var err *parseError
+	fk.Columns, err = p.parseColumnNameList()
+	if err != nil {
+		return ForeignKey{}, err
+	}
+	if err := p.expect("REFERENCES"); err != nil {
+		return ForeignKey{}, err
+	}
+	fk.RefTable, err = p.parseTableOrIndexOrColumnName()
+	if err != nil {
+		return ForeignKey{}, err
+	}
+	fk.RefColumns, err = p.parseColumnNameList()
+	if err != nil {
+		return ForeignKey{}, err
+	}
+	return fk, nil
+}
+
 func (p *parser) parseColumnNameList() ([]string, *parseError) {
 	var list []string
 	err := p.parseCommaList(func(p *parser) *parseError {
@@ -1453,11 +1586,22 @@ func (p *parser) parseQuery() (Query, *parseError) {
 	}
 
 	if p.eat("LIMIT") {
-		lim, err := p.parseLimitCount()
+		// "only literal or parameter values"
+		// https://cloud.google.com/spanner/docs/query-syntax#limit-clause-and-offset-clause
+
+		lim, err := p.parseLiteralOrParam()
 		if err != nil {
 			return Query{}, err
 		}
 		q.Limit = lim
+
+		if p.eat("OFFSET") {
+			off, err := p.parseLiteralOrParam()
+			if err != nil {
+				return Query{}, err
+			}
+			q.Offset = off
+		}
 	}
 
 	return q, nil
@@ -1488,11 +1632,11 @@ func (p *parser) parseSelect() (Select, *parseError) {
 	}
 
 	// Read expressions for the SELECT list.
-	list, err := p.parseExprList()
+	list, aliases, err := p.parseSelectList()
 	if err != nil {
 		return Select{}, err
 	}
-	sel.List = list
+	sel.List, sel.ListAliases = list, aliases
 
 	if p.eat("FROM") {
 		for {
@@ -1535,6 +1679,46 @@ func (p *parser) parseSelect() (Select, *parseError) {
 	// TODO: HAVING
 
 	return sel, nil
+}
+
+func (p *parser) parseSelectList() ([]Expr, []string, *parseError) {
+	var list []Expr
+	var aliases []string // Only set if any aliases are seen.
+	padAliases := func() {
+		for len(aliases) < len(list) {
+			aliases = append(aliases, "")
+		}
+	}
+
+	for {
+		expr, err := p.parseExpr()
+		if err != nil {
+			return nil, nil, err
+		}
+		list = append(list, expr)
+
+		// TODO: The "AS" keyword is optional.
+		if p.eat("AS") {
+			// The docs don't seem to indicate the valid lexical element for aliases,
+			// but it seems likely that identifiers are suitable.
+			alias, err := p.parseTableOrIndexOrColumnName()
+			if err != nil {
+				return nil, nil, err
+			}
+
+			padAliases()
+			aliases[len(aliases)-1] = alias
+		}
+
+		if p.eat(",") {
+			continue
+		}
+		break
+	}
+	if aliases != nil {
+		padAliases()
+	}
+	return list, aliases, nil
 }
 
 func (p *parser) parseSelectFrom() (SelectFrom, *parseError) {
@@ -1616,10 +1800,7 @@ func (p *parser) parseOrder() (Order, *parseError) {
 	return o, nil
 }
 
-func (p *parser) parseLimitCount() (Limit, *parseError) {
-	// "only literal or parameter values"
-	// https://cloud.google.com/spanner/docs/query-syntax#limit-clause-and-offset-clause
-
+func (p *parser) parseLiteralOrParam() (LiteralOrParam, *parseError) {
 	tok := p.next()
 	if tok.err != nil {
 		return nil, tok.err
@@ -1678,6 +1859,7 @@ ascending order of precedence:
 	orParser
 	andParser
 	parseIsOp
+	parseInOp
 	parseComparisonOp
 	parseArithOp: |, ^, &, << and >>, + and -, * and / and ||
 	parseUnaryArithOp: - and ~
@@ -1796,7 +1978,7 @@ func (p *parser) parseLogicalNot() (Expr, *parseError) {
 func (p *parser) parseIsOp() (Expr, *parseError) {
 	debugf("parseIsOp: %v", p)
 
-	expr, err := p.parseComparisonOp()
+	expr, err := p.parseInOp()
 	if err != nil {
 		return nil, err
 	}
@@ -1828,6 +2010,37 @@ func (p *parser) parseIsOp() (Expr, *parseError) {
 	}
 
 	return isOp, nil
+}
+
+func (p *parser) parseInOp() (Expr, *parseError) {
+	debugf("parseInOp: %v", p)
+
+	expr, err := p.parseComparisonOp()
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO: do we need to do lookahead?
+
+	inOp := InOp{LHS: expr}
+	if p.eat("NOT") {
+		inOp.Neg = true
+	}
+
+	if !p.eat("IN") {
+		// TODO: push back the "NOT"?
+		return expr, nil
+	}
+
+	if p.eat("UNNEST") {
+		inOp.Unnest = true
+	}
+
+	inOp.RHS, err = p.parseParenExprList()
+	if err != nil {
+		return nil, err
+	}
+	return inOp, nil
 }
 
 var symbolicOperators = map[string]ComparisonOperator{

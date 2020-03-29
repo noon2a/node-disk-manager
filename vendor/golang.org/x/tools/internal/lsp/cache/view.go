@@ -24,12 +24,11 @@ import (
 	"golang.org/x/tools/internal/gocommand"
 	"golang.org/x/tools/internal/imports"
 	"golang.org/x/tools/internal/lsp/debug"
+	"golang.org/x/tools/internal/lsp/debug/tag"
 	"golang.org/x/tools/internal/lsp/source"
-	"golang.org/x/tools/internal/lsp/telemetry"
 	"golang.org/x/tools/internal/memoize"
 	"golang.org/x/tools/internal/span"
-	"golang.org/x/tools/internal/telemetry/log"
-	"golang.org/x/tools/internal/telemetry/tag"
+	"golang.org/x/tools/internal/telemetry/event"
 	"golang.org/x/tools/internal/xcontext"
 	errors "golang.org/x/xerrors"
 )
@@ -263,6 +262,24 @@ func (v *view) buildBuiltinPackage(ctx context.Context, goFiles []string) error 
 	return nil
 }
 
+func (v *view) WriteEnv(ctx context.Context, w io.Writer) error {
+	env, buildFlags := v.env()
+	// TODO(rstambler): We could probably avoid running this by saving the
+	// output on original create, but I'm not sure if it's worth it.
+	inv := gocommand.Invocation{
+		Verb:       "env",
+		Env:        env,
+		WorkingDir: v.Folder().Filename(),
+	}
+	stdout, err := inv.Run(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(w, "go env for %v\n(valid build configuration = %v)\n(build flags: %v)\n", v.folder.Filename(), v.hasValidBuildConfiguration, buildFlags)
+	fmt.Fprint(w, stdout)
+	return nil
+}
+
 func (v *view) RunProcessEnvFunc(ctx context.Context, fn func(*imports.Options) error) error {
 	v.importsMu.Lock()
 	defer v.importsMu.Unlock()
@@ -320,9 +337,9 @@ func (v *view) refreshProcessEnv() {
 	v.importsMu.Unlock()
 
 	// We don't have a context handy to use for logging, so use the stdlib for now.
-	log.Print(v.baseCtx, "background imports cache refresh starting")
+	event.Print(v.baseCtx, "background imports cache refresh starting")
 	err := imports.PrimeCache(context.Background(), env)
-	log.Print(v.baseCtx, fmt.Sprintf("background refresh finished after %v", time.Since(start)), tag.Of("Error", err))
+	event.Print(v.baseCtx, fmt.Sprintf("background refresh finished after %v", time.Since(start)), event.Err.Of(err))
 
 	v.importsMu.Lock()
 	v.cacheRefreshDuration = time.Since(start)
@@ -339,7 +356,7 @@ func (v *view) buildProcessEnv(ctx context.Context) (*imports.ProcessEnv, error)
 	}
 	if v.options.VerboseOutput {
 		processEnv.Logf = func(format string, args ...interface{}) {
-			log.Print(ctx, fmt.Sprintf(format, args...))
+			event.Print(ctx, fmt.Sprintf(format, args...))
 		}
 	}
 	for _, kv := range env {
@@ -537,7 +554,7 @@ func (v *view) initialize(ctx context.Context, s *snapshot) {
 		defer close(v.initialized)
 
 		if err := s.load(ctx, viewLoadScope("LOAD_VIEW"), packagePath("builtin")); err != nil {
-			log.Error(ctx, "initial workspace load failed", err)
+			event.Error(ctx, "initial workspace load failed", err)
 		}
 	})
 }
@@ -580,6 +597,9 @@ func (v *view) cancelBackground() {
 }
 
 func (v *view) setBuildInformation(ctx context.Context, folder span.URI, env []string, modfileFlagEnabled bool) error {
+	if err := checkPathCase(folder.Filename()); err != nil {
+		return fmt.Errorf("invalid workspace configuration: %v", err)
+	}
 	// Make sure to get the `go env` before continuing with initialization.
 	gomod, err := v.getGoEnv(ctx, env)
 	if err != nil {
@@ -638,6 +658,13 @@ func (v *view) setBuildInformation(ctx context.Context, folder span.URI, env []s
 	if err := ioutil.WriteFile(tempSumFile(tempModFile.Name()), contents, stat.Mode()); err != nil {
 		return err
 	}
+	return nil
+}
+
+// OS-specific path case check, for case-insensitive filesystems.
+var checkPathCase = defaultCheckPathCase
+
+func defaultCheckPathCase(path string) error {
 	return nil
 }
 
@@ -764,7 +791,7 @@ func (v *view) loadPackages(cfg *packages.Config, patterns ...string) ([]*packag
 			return pkgs, err
 		}
 
-		log.Error(cfg.Context, "Load concurrency error, will retry serially", err)
+		event.Error(cfg.Context, "Load concurrency error, will retry serially", err)
 		if !locked {
 			v.loadMu.Lock()
 			v.serializeLoads++
@@ -793,7 +820,7 @@ func (v *view) modfileFlagExists(ctx context.Context, env []string) (bool, error
 	// If the output is not go1.14 or an empty string, then it could be an error.
 	lines := strings.Split(stdout.String(), "\n")
 	if len(lines) < 2 && stdout.String() != "" {
-		log.Error(ctx, "unexpected stdout when checking for go1.14", errors.Errorf("%q", stdout), telemetry.Directory.Of(folder))
+		event.Error(ctx, "unexpected stdout when checking for go1.14", errors.Errorf("%q", stdout), tag.Directory.Of(folder))
 		return false, nil
 	}
 	return lines[0] == "go1.14", nil

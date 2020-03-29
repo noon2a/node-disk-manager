@@ -7,6 +7,7 @@ package lsp
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"golang.org/x/tools/internal/jsonrpc2"
@@ -14,6 +15,7 @@ import (
 	"golang.org/x/tools/internal/lsp/protocol"
 	"golang.org/x/tools/internal/lsp/source"
 	"golang.org/x/tools/internal/span"
+	errors "golang.org/x/xerrors"
 )
 
 const concurrentAnalyses = 1
@@ -38,6 +40,20 @@ const (
 	serverShutDown
 )
 
+func (s serverState) String() string {
+	switch s {
+	case serverCreated:
+		return "created"
+	case serverInitializing:
+		return "initializing"
+	case serverInitialized:
+		return "initialized"
+	case serverShutDown:
+		return "shutDown"
+	}
+	return fmt.Sprintf("(unknown state: %d)", int(s))
+}
+
 // Server implements the protocol.Server interface.
 type Server struct {
 	client protocol.Client
@@ -58,11 +74,14 @@ type Server struct {
 	deliveredMu sync.Mutex
 	delivered   map[span.URI]sentDiagnostics
 
-	showedInitialError   bool
-	showedInitialErrorMu sync.Mutex
-
 	// diagnosticsSema limits the concurrency of diagnostics runs, which can be expensive.
 	diagnosticsSema chan struct{}
+
+	// supportsWorkDoneProgress is set in the initializeRequest
+	// to determine if the client can support progress notifications
+	supportsWorkDoneProgress bool
+	inProgressMu             sync.Mutex
+	inProgress               map[string]func()
 }
 
 // sentDiagnostics is used to cache diagnostics that have been sent for a given file.
@@ -74,16 +93,19 @@ type sentDiagnostics struct {
 	snapshotID   uint64
 }
 
-func (s *Server) cancelRequest(ctx context.Context, params *protocol.CancelParams) error {
-	return nil
-}
-
 func (s *Server) codeLens(ctx context.Context, params *protocol.CodeLensParams) ([]protocol.CodeLens, error) {
-	snapshot, fh, ok, err := s.beginFileRequest(params.TextDocument.URI, source.Mod)
+	snapshot, fh, ok, err := s.beginFileRequest(params.TextDocument.URI, source.UnknownKind)
 	if !ok {
 		return nil, err
 	}
-	return mod.CodeLens(ctx, snapshot, fh.Identity().URI)
+	switch fh.Identity().Kind {
+	case source.Mod:
+		return mod.CodeLens(ctx, snapshot, fh.Identity().URI)
+	case source.Go:
+		return source.CodeLens(ctx, snapshot, fh)
+	}
+	// Unsupported file kind for a code action.
+	return nil, nil
 }
 
 func (s *Server) nonstandardRequest(ctx context.Context, method string, params interface{}) (interface{}, error) {
@@ -115,6 +137,27 @@ func (s *Server) nonstandardRequest(ctx context.Context, method string, params i
 		return struct{}{}, nil
 	}
 	return nil, notImplemented(method)
+}
+
+func (s *Server) workDoneProgressCancel(ctx context.Context, params *protocol.WorkDoneProgressCancelParams) error {
+	token, ok := params.Token.(string)
+	if !ok {
+		return errors.Errorf("expected params.Token to be string but got %T", params.Token)
+	}
+	s.inProgressMu.Lock()
+	defer s.inProgressMu.Unlock()
+	cancel, ok := s.inProgress[token]
+	if !ok {
+		return errors.Errorf("token %q not found in progress", token)
+	}
+	cancel()
+	return nil
+}
+
+func (s *Server) clearInProgress(token string) {
+	s.inProgressMu.Lock()
+	delete(s.inProgress, token)
+	s.inProgressMu.Unlock()
 }
 
 func notImplemented(method string) *jsonrpc2.Error {

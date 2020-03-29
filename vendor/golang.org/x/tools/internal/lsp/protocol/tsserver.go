@@ -3,7 +3,7 @@ package protocol
 // Package protocol contains data types and code for LSP jsonrpcs
 // generated automatically from vscode-languageserver-node
 // commit: 151b520c995ee3d76729b5c46258ab273d989726
-// last fetched Mon Mar 09 2020 10:29:10 GMT-0400 (Eastern Daylight Time)
+// last fetched Fri Mar 13 2020 17:02:20 GMT-0400 (Eastern Daylight Time)
 
 // Code generated (see typescript/README.md) DO NOT EDIT.
 
@@ -12,7 +12,7 @@ import (
 	"encoding/json"
 
 	"golang.org/x/tools/internal/jsonrpc2"
-	"golang.org/x/tools/internal/telemetry/log"
+	"golang.org/x/tools/internal/telemetry/event"
 	"golang.org/x/tools/internal/xcontext"
 )
 
@@ -28,7 +28,6 @@ type Server interface {
 	DidSave(context.Context, *DidSaveTextDocumentParams) error
 	WillSave(context.Context, *WillSaveTextDocumentParams) error
 	DidChangeWatchedFiles(context.Context, *DidChangeWatchedFilesParams) error
-	Progress(context.Context, *ProgressParams) error
 	SetTraceNotification(context.Context, *SetTraceParams) error
 	LogTraceNotification(context.Context, *LogTraceParams) error
 	Implementation(context.Context, *ImplementationParams) (Definition /*Definition | DefinitionLink[] | null*/, error)
@@ -38,7 +37,6 @@ type Server interface {
 	FoldingRange(context.Context, *FoldingRangeParams) ([]FoldingRange /*FoldingRange[] | null*/, error)
 	Declaration(context.Context, *DeclarationParams) (Declaration /*Declaration | DeclarationLink[] | null*/, error)
 	SelectionRange(context.Context, *SelectionRangeParams) ([]SelectionRange /*SelectionRange[] | null*/, error)
-	WorkDoneProgressCreate(context.Context, *WorkDoneProgressCreateParams) error
 	Initialize(context.Context, *ParamInitialize) (*InitializeResult, error)
 	Shutdown(context.Context) error
 	WillSaveWaitUntil(context.Context, *WillSaveTextDocumentParams) ([]TextEdit /*TextEdit[] | null*/, error)
@@ -88,7 +86,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 			return true
 		}
 		if err := h.server.DidChangeWorkspaceFolders(ctx, &params); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "window/workDoneProgress/cancel": // notif
@@ -98,7 +96,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 			return true
 		}
 		if err := h.server.WorkDoneProgressCancel(ctx, &params); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "initialized": // notif
@@ -108,12 +106,12 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 			return true
 		}
 		if err := h.server.Initialized(ctx, &params); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "exit": // notif
 		if err := h.server.Exit(ctx); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "workspace/didChangeConfiguration": // notif
@@ -123,7 +121,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 			return true
 		}
 		if err := h.server.DidChangeConfiguration(ctx, &params); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/didOpen": // notif
@@ -133,7 +131,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 			return true
 		}
 		if err := h.server.DidOpen(ctx, &params); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/didChange": // notif
@@ -143,7 +141,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 			return true
 		}
 		if err := h.server.DidChange(ctx, &params); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/didClose": // notif
@@ -153,7 +151,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 			return true
 		}
 		if err := h.server.DidClose(ctx, &params); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/didSave": // notif
@@ -163,7 +161,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 			return true
 		}
 		if err := h.server.DidSave(ctx, &params); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/willSave": // notif
@@ -173,7 +171,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 			return true
 		}
 		if err := h.server.WillSave(ctx, &params); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "workspace/didChangeWatchedFiles": // notif
@@ -183,17 +181,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 			return true
 		}
 		if err := h.server.DidChangeWatchedFiles(ctx, &params); err != nil {
-			log.Error(ctx, "", err)
-		}
-		return true
-	case "$/progress": // notif
-		var params ProgressParams
-		if err := json.Unmarshal(*r.Params, &params); err != nil {
-			sendParseError(ctx, r, err)
-			return true
-		}
-		if err := h.server.Progress(ctx, &params); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "$/setTraceNotification": // notif
@@ -203,7 +191,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 			return true
 		}
 		if err := h.server.SetTraceNotification(ctx, &params); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "$/logTraceNotification": // notif
@@ -213,7 +201,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 			return true
 		}
 		if err := h.server.LogTraceNotification(ctx, &params); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/implementation": // req
@@ -224,7 +212,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.Implementation(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/typeDefinition": // req
@@ -235,7 +223,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.TypeDefinition(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/documentColor": // req
@@ -246,7 +234,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.DocumentColor(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/colorPresentation": // req
@@ -257,7 +245,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.ColorPresentation(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/foldingRange": // req
@@ -268,7 +256,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.FoldingRange(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/declaration": // req
@@ -279,7 +267,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.Declaration(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/selectionRange": // req
@@ -290,18 +278,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.SelectionRange(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
-		}
-		return true
-	case "window/workDoneProgress/create": // req
-		var params WorkDoneProgressCreateParams
-		if err := json.Unmarshal(*r.Params, &params); err != nil {
-			sendParseError(ctx, r, err)
-			return true
-		}
-		err := h.server.WorkDoneProgressCreate(ctx, &params)
-		if err := r.Reply(ctx, nil, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "initialize": // req
@@ -312,7 +289,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.Initialize(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "shutdown": // req
@@ -322,7 +299,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		err := h.server.Shutdown(ctx)
 		if err := r.Reply(ctx, nil, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/willSaveWaitUntil": // req
@@ -333,7 +310,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.WillSaveWaitUntil(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/completion": // req
@@ -344,7 +321,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.Completion(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "completionItem/resolve": // req
@@ -355,7 +332,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.Resolve(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/hover": // req
@@ -366,7 +343,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.Hover(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/signatureHelp": // req
@@ -377,7 +354,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.SignatureHelp(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/definition": // req
@@ -388,7 +365,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.Definition(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/references": // req
@@ -399,7 +376,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.References(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/documentHighlight": // req
@@ -410,7 +387,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.DocumentHighlight(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/documentSymbol": // req
@@ -421,7 +398,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.DocumentSymbol(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/codeAction": // req
@@ -432,7 +409,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.CodeAction(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "workspace/symbol": // req
@@ -443,7 +420,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.Symbol(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/codeLens": // req
@@ -454,7 +431,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.CodeLens(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "codeLens/resolve": // req
@@ -465,7 +442,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.ResolveCodeLens(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/documentLink": // req
@@ -476,7 +453,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.DocumentLink(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "documentLink/resolve": // req
@@ -487,7 +464,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.ResolveDocumentLink(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/formatting": // req
@@ -498,7 +475,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.Formatting(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/rangeFormatting": // req
@@ -509,7 +486,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.RangeFormatting(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/onTypeFormatting": // req
@@ -520,7 +497,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.OnTypeFormatting(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/rename": // req
@@ -531,7 +508,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.Rename(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/prepareRename": // req
@@ -542,7 +519,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.PrepareRename(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "workspace/executeCommand": // req
@@ -553,7 +530,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.ExecuteCommand(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/prepareCallHierarchy": // req
@@ -564,7 +541,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.PrepareCallHierarchy(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "callHierarchy/incomingCalls": // req
@@ -575,7 +552,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.IncomingCalls(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "callHierarchy/outgoingCalls": // req
@@ -586,7 +563,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.OutgoingCalls(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/semanticTokens": // req
@@ -597,7 +574,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.SemanticTokens(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/semanticTokens/edits": // req
@@ -608,7 +585,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.SemanticTokensEdits(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	case "textDocument/semanticTokens/range": // req
@@ -619,7 +596,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.SemanticTokensRange(ctx, &params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 	default:
@@ -630,7 +607,7 @@ func (h serverHandler) Deliver(ctx context.Context, r *jsonrpc2.Request, deliver
 		}
 		resp, err := h.server.NonstandardRequest(ctx, r.Method, params)
 		if err := r.Reply(ctx, resp, err); err != nil {
-			log.Error(ctx, "", err)
+			event.Error(ctx, "", err)
 		}
 		return true
 
@@ -683,10 +660,6 @@ func (s *serverDispatcher) WillSave(ctx context.Context, params *WillSaveTextDoc
 
 func (s *serverDispatcher) DidChangeWatchedFiles(ctx context.Context, params *DidChangeWatchedFilesParams) error {
 	return s.Conn.Notify(ctx, "workspace/didChangeWatchedFiles", params)
-}
-
-func (s *serverDispatcher) Progress(ctx context.Context, params *ProgressParams) error {
-	return s.Conn.Notify(ctx, "$/progress", params)
 }
 
 func (s *serverDispatcher) SetTraceNotification(ctx context.Context, params *SetTraceParams) error {
@@ -750,10 +723,6 @@ func (s *serverDispatcher) SelectionRange(ctx context.Context, params *Selection
 		return nil, err
 	}
 	return result, nil
-}
-
-func (s *serverDispatcher) WorkDoneProgressCreate(ctx context.Context, params *WorkDoneProgressCreateParams) error {
-	return s.Conn.Call(ctx, "window/workDoneProgress/create", params, nil) // Call, not Notify
 }
 
 func (s *serverDispatcher) Initialize(ctx context.Context, params *ParamInitialize) (*InitializeResult, error) {

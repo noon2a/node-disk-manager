@@ -11,11 +11,10 @@ import (
 	"go/token"
 	"html/template"
 	"io"
-	stdlog "log"
+	"log"
 	"net"
 	"net/http"
 	"net/http/pprof"
-	_ "net/http/pprof" // pull in the standard pprof handlers
 	"os"
 	"path"
 	"path/filepath"
@@ -27,19 +26,15 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/tools/internal/lsp/debug/tag"
 	"golang.org/x/tools/internal/lsp/protocol"
 	"golang.org/x/tools/internal/span"
-	"golang.org/x/tools/internal/telemetry"
+	"golang.org/x/tools/internal/telemetry/event"
 	"golang.org/x/tools/internal/telemetry/export"
+	"golang.org/x/tools/internal/telemetry/export/metric"
 	"golang.org/x/tools/internal/telemetry/export/ocagent"
 	"golang.org/x/tools/internal/telemetry/export/prometheus"
-	"golang.org/x/tools/internal/telemetry/log"
-	"golang.org/x/tools/internal/telemetry/tag"
 )
-
-type exporter struct {
-	stderr io.Writer
-}
 
 type instanceKeyType int
 
@@ -56,6 +51,8 @@ type Instance struct {
 	OCAgentConfig        string
 
 	LogWriter io.Writer
+
+	exporter event.Exporter
 
 	ocagent    *ocagent.Exporter
 	prometheus *prometheus.Exporter
@@ -376,7 +373,7 @@ func (i *Instance) getFile(r *http.Request) interface{} {
 
 func (i *Instance) getInfo(r *http.Request) interface{} {
 	buf := &bytes.Buffer{}
-	i.PrintServerInfo(buf)
+	i.PrintServerInfo(r.Context(), buf)
 	return template.HTML(buf.String())
 }
 
@@ -387,9 +384,7 @@ func getMemory(r *http.Request) interface{} {
 }
 
 func init() {
-	export.SetExporter(&exporter{
-		stderr: os.Stderr,
-	})
+	event.SetExporter(makeGlobalExporter(os.Stderr))
 }
 
 func GetInstance(ctx context.Context) *Instance {
@@ -420,6 +415,7 @@ func WithInstance(ctx context.Context, workdir, agent string) context.Context {
 	i.rpcs = &rpcs{}
 	i.traces = &traces{}
 	i.State = &State{}
+	i.exporter = makeInstanceExporter(i)
 	return context.WithValue(ctx, instanceKey, i)
 }
 
@@ -440,7 +436,7 @@ func (i *Instance) SetLogFile(logfile string) (func(), error) {
 		closeLog = func() {
 			defer f.Close()
 		}
-		stdlog.SetOutput(io.MultiWriter(os.Stderr, f))
+		log.SetOutput(io.MultiWriter(os.Stderr, f))
 		i.LogWriter = f
 	}
 	i.Logfile = logfile
@@ -462,9 +458,9 @@ func (i *Instance) Serve(ctx context.Context) error {
 
 	port := listener.Addr().(*net.TCPAddr).Port
 	if strings.HasSuffix(i.DebugAddress, ":0") {
-		stdlog.Printf("debug server listening on port %d", port)
+		log.Printf("debug server listening on port %d", port)
 	}
-	log.Print(ctx, "Debug serving", tag.Of("Port", port))
+	event.Print(ctx, "Debug serving", tag.Port.Of(port))
 	go func() {
 		mux := http.NewServeMux()
 		mux.HandleFunc("/", render(mainTmpl, func(*http.Request) interface{} { return i }))
@@ -492,10 +488,10 @@ func (i *Instance) Serve(ctx context.Context) error {
 		mux.HandleFunc("/info", render(infoTmpl, i.getInfo))
 		mux.HandleFunc("/memory", render(memoryTmpl, getMemory))
 		if err := http.Serve(listener, mux); err != nil {
-			log.Error(ctx, "Debug server failed", err)
+			event.Error(ctx, "Debug server failed", err)
 			return
 		}
-		log.Print(ctx, "Debug server finished")
+		event.Print(ctx, "Debug server finished")
 	}()
 	return nil
 }
@@ -513,7 +509,7 @@ func (i *Instance) MonitorMemory(ctx context.Context) {
 				continue
 			}
 			i.writeMemoryDebug(nextThresholdGiB)
-			log.Print(ctx, fmt.Sprintf("Wrote memory usage debug info to %v", os.TempDir()))
+			event.Print(ctx, fmt.Sprintf("Wrote memory usage debug info to %v", os.TempDir()))
 			nextThresholdGiB++
 		}
 	}()
@@ -544,40 +540,42 @@ func (i *Instance) writeMemoryDebug(threshold uint64) error {
 	return nil
 }
 
-func (e *exporter) ProcessEvent(ctx context.Context, event telemetry.Event) context.Context {
-	ctx = export.ContextSpan(ctx, event)
-	i := GetInstance(ctx)
-	if event.Type == telemetry.EventLog && (event.Error != nil || i == nil) {
-		fmt.Fprintf(e.stderr, "%v\n", event)
+func makeGlobalExporter(stderr io.Writer) event.Exporter {
+	return func(ctx context.Context, ev event.Event, tags event.TagMap) context.Context {
+		i := GetInstance(ctx)
+		if ev.IsLog() && (event.Err.Get(ev.Map()) != nil || i == nil) {
+			fmt.Fprintf(stderr, "%v\n", ev)
+		}
+		ctx = protocol.LogEvent(ctx, ev, tags)
+		if i == nil {
+			return ctx
+		}
+		return i.exporter(ctx, ev, tags)
 	}
-	ctx = protocol.LogEvent(ctx, event)
-	if i == nil {
-		return ctx
-	}
-	ctx = export.Tag(ctx, event)
-	if i.ocagent != nil {
-		ctx = i.ocagent.ProcessEvent(ctx, event)
-	}
-	if i.traces != nil {
-		ctx = i.traces.ProcessEvent(ctx, event)
-	}
-	return ctx
 }
 
-func (e *exporter) Metric(ctx context.Context, data telemetry.MetricData) {
-	i := GetInstance(ctx)
-	if i == nil {
-		return
+func makeInstanceExporter(i *Instance) event.Exporter {
+	exporter := func(ctx context.Context, ev event.Event, tags event.TagMap) context.Context {
+		if i.ocagent != nil {
+			ctx = i.ocagent.ProcessEvent(ctx, ev, tags)
+		}
+		if i.prometheus != nil {
+			ctx = i.prometheus.ProcessEvent(ctx, ev, tags)
+		}
+		if i.rpcs != nil {
+			ctx = i.rpcs.ProcessEvent(ctx, ev, tags)
+		}
+		if i.traces != nil {
+			ctx = i.traces.ProcessEvent(ctx, ev, tags)
+		}
+		return ctx
 	}
-	if i.ocagent != nil {
-		i.ocagent.Metric(ctx, data)
-	}
-	if i.traces != nil {
-		i.prometheus.Metric(ctx, data)
-	}
-	if i.rpcs != nil {
-		i.rpcs.Metric(ctx, data)
-	}
+	metrics := metric.Config{}
+	registerMetrics(&metrics)
+	exporter = metrics.Exporter(exporter)
+	exporter = export.Spans(exporter)
+	exporter = export.Labels(exporter)
+	return exporter
 }
 
 type dataFunc func(*http.Request) interface{}
@@ -589,7 +587,7 @@ func render(tmpl *template.Template, fun dataFunc) func(http.ResponseWriter, *ht
 			data = fun(r)
 		}
 		if err := tmpl.Execute(w, data); err != nil {
-			log.Error(context.Background(), "", err)
+			event.Error(context.Background(), "", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	}

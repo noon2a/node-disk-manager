@@ -17,7 +17,7 @@ import (
 	"golang.org/x/tools/internal/lsp/diff"
 	"golang.org/x/tools/internal/lsp/protocol"
 	"golang.org/x/tools/internal/span"
-	"golang.org/x/tools/internal/telemetry/trace"
+	"golang.org/x/tools/internal/telemetry/event"
 	"golang.org/x/tools/refactor/satisfy"
 	errors "golang.org/x/xerrors"
 )
@@ -42,43 +42,35 @@ type PrepareItem struct {
 }
 
 func PrepareRename(ctx context.Context, s Snapshot, f FileHandle, pp protocol.Position) (*PrepareItem, error) {
-	ctx, done := trace.StartSpan(ctx, "source.PrepareRename")
+	ctx, done := event.StartSpan(ctx, "source.PrepareRename")
 	defer done()
 
 	qos, err := qualifiedObjsAtProtocolPos(ctx, s, f, pp)
 	if err != nil {
 		return nil, err
 	}
-
-	// Do not rename builtin identifiers.
-	if qos[0].obj.Parent() == types.Universe {
-		return nil, errors.Errorf("cannot rename builtin %q", qos[0].obj.Name())
-	}
-
-	mr, err := posToMappedRange(s.View(), qos[0].sourcePkg, qos[0].node.Pos(), qos[0].node.End())
+	node, obj, pkg := qos[0].node, qos[0].obj, qos[0].sourcePkg
+	mr, err := posToMappedRange(s.View(), pkg, node.Pos(), node.End())
 	if err != nil {
 		return nil, err
 	}
-
 	rng, err := mr.Range()
 	if err != nil {
 		return nil, err
 	}
-
-	if _, isImport := qos[0].node.(*ast.ImportSpec); isImport {
+	if _, isImport := node.(*ast.ImportSpec); isImport {
 		// We're not really renaming the import path.
 		rng.End = rng.Start
 	}
-
 	return &PrepareItem{
 		Range: rng,
-		Text:  qos[0].obj.Name(),
+		Text:  obj.Name(),
 	}, nil
 }
 
 // Rename returns a map of TextEdits for each file modified when renaming a given identifier within a package.
 func Rename(ctx context.Context, s Snapshot, f FileHandle, pp protocol.Position, newName string) (map[span.URI][]protocol.TextEdit, error) {
-	ctx, done := trace.StartSpan(ctx, "source.Rename")
+	ctx, done := event.StartSpan(ctx, "source.Rename")
 	defer done()
 
 	qos, err := qualifiedObjsAtProtocolPos(ctx, s, f, pp)
@@ -95,19 +87,13 @@ func Rename(ctx context.Context, s Snapshot, f FileHandle, pp protocol.Position,
 	if !isValidIdentifier(newName) {
 		return nil, errors.Errorf("invalid identifier to rename: %q", newName)
 	}
-	// Do not rename builtin identifiers.
-	if obj.Parent() == types.Universe {
-		return nil, errors.Errorf("cannot rename builtin %q", obj.Name())
-	}
 	if pkg == nil || pkg.IsIllTyped() {
 		return nil, errors.Errorf("package for %s is ill typed", f.Identity().URI)
 	}
-
-	refs, err := References(ctx, s, f, pp, true)
+	refs, err := references(ctx, s, qos, true)
 	if err != nil {
 		return nil, err
 	}
-
 	r := renamer{
 		ctx:          ctx,
 		fset:         s.View().Session().Cache().FileSet(),
@@ -233,7 +219,7 @@ func (r *renamer) update() (map[span.URI][]diff.TextEdit, error) {
 
 // docComment returns the doc for an identifier.
 func (r *renamer) docComment(pkg Package, id *ast.Ident) *ast.CommentGroup {
-	_, nodes, _ := pathEnclosingInterval(r.ctx, r.fset, pkg, id.Pos(), id.End())
+	_, nodes, _ := pathEnclosingInterval(r.fset, pkg, id.Pos(), id.End())
 	for _, node := range nodes {
 		switch decl := node.(type) {
 		case *ast.FuncDecl:
@@ -264,7 +250,7 @@ func (r *renamer) docComment(pkg Package, id *ast.Ident) *ast.CommentGroup {
 func (r *renamer) updatePkgName(pkgName *types.PkgName) (*diff.TextEdit, error) {
 	// Modify ImportSpec syntax to add or remove the Name as needed.
 	pkg := r.packages[pkgName.Pkg()]
-	_, path, _ := pathEnclosingInterval(r.ctx, r.fset, pkg, pkgName.Pos(), pkgName.Pos())
+	_, path, _ := pathEnclosingInterval(r.fset, pkg, pkgName.Pos(), pkgName.Pos())
 	if len(path) < 2 {
 		return nil, errors.Errorf("no path enclosing interval for %s", pkgName.Name())
 	}

@@ -18,6 +18,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/tools/internal/jsonrpc2"
 	"golang.org/x/tools/internal/lsp"
@@ -57,7 +58,7 @@ type Application struct {
 	env []string
 
 	// Support for remote lsp server
-	Remote string `flag:"remote" help:"*EXPERIMENTAL* - forward all commands to a remote lsp specified by this flag. If prefixed by 'unix;', the subsequent address is assumed to be a unix domain socket. If 'auto', or prefixed by 'auto', the remote address is automatically resolved based on the executing environment. Otherwise, TCP is used."`
+	Remote string `flag:"remote" help:"forward all commands to a remote lsp specified by this flag. With no special prefix, this is assumed to be a TCP address. If prefixed by 'unix;', the subsequent address is assumed to be a unix domain socket. If 'auto', or prefixed by 'auto;', the remote address is automatically resolved based on the executing environment."`
 
 	// Enable verbose logging
 	Verbose bool `flag:"v" help:"verbose output"`
@@ -81,6 +82,11 @@ func New(name, wd string, env []string, options func(*source.Options)) *Applicat
 		wd:      wd,
 		env:     env,
 		OCAgent: "off", //TODO: Remove this line to default the exporter to on
+
+		Serve: Serve{
+			RemoteListenTimeout: 1 * time.Minute,
+			RemoteLogfile:       "auto",
+		},
 	}
 	return app
 }
@@ -169,6 +175,7 @@ func (app *Application) featureCommands() []tool.Application {
 		&highlight{app: app},
 		&implementation{app: app},
 		&imports{app: app},
+		&inspect{app: app},
 		&links{app: app},
 		&prepareRename{app: app},
 		&query{app: app},
@@ -177,6 +184,7 @@ func (app *Application) featureCommands() []tool.Application {
 		&signature{app: app},
 		&suggestedfix{app: app},
 		&symbols{app: app},
+		&workspaceSymbol{app: app},
 	}
 }
 
@@ -195,7 +203,12 @@ func (app *Application) connect(ctx context.Context) (*connection, error) {
 	case strings.HasPrefix(app.Remote, "internal@"):
 		internalMu.Lock()
 		defer internalMu.Unlock()
-		if c := internalConnections[app.wd]; c != nil {
+		opts := source.DefaultOptions()
+		if app.options != nil {
+			app.options(&opts)
+		}
+		key := fmt.Sprintf("%s %v", app.wd, opts)
+		if c := internalConnections[key]; c != nil {
 			return c, nil
 		}
 		remote := app.Remote[len("internal@"):]
@@ -204,7 +217,7 @@ func (app *Application) connect(ctx context.Context) (*connection, error) {
 		if err != nil {
 			return nil, err
 		}
-		internalConnections[app.wd] = connection
+		internalConnections[key] = connection
 		return connection, nil
 	default:
 		return app.connectRemote(ctx, app.Remote)
@@ -227,6 +240,12 @@ func (app *Application) connectRemote(ctx context.Context, remote string) (*conn
 	return connection, connection.initialize(ctx, app.options)
 }
 
+var matcherString = map[source.Matcher]string{
+	source.Fuzzy:           "fuzzy",
+	source.CaseSensitive:   "caseSensitive",
+	source.CaseInsensitive: "default",
+}
+
 func (c *connection) initialize(ctx context.Context, options func(*source.Options)) error {
 	params := &protocol.ParamInitialize{}
 	params.RootURI = protocol.URIFromPath(c.Client.app.wd)
@@ -241,6 +260,9 @@ func (c *connection) initialize(ctx context.Context, options func(*source.Option
 		ContentFormat: []protocol.MarkupKind{opts.PreferredContentFormat},
 	}
 	params.Capabilities.TextDocument.DocumentSymbol.HierarchicalDocumentSymbolSupport = opts.HierarchicalDocumentSymbolSupport
+	params.InitializationOptions = map[string]interface{}{
+		"matcher": matcherString[opts.Matcher],
+	}
 
 	if _, err := c.Server.Initialize(ctx, params); err != nil {
 		return err
@@ -377,6 +399,14 @@ func (c *cmdClient) PublishDiagnostics(ctx context.Context, p *protocol.PublishD
 
 	file := c.getFile(ctx, fileURI(p.URI))
 	file.diagnostics = p.Diagnostics
+	return nil
+}
+
+func (c *cmdClient) Progress(context.Context, *protocol.ProgressParams) error {
+	return nil
+}
+
+func (c *cmdClient) WorkDoneProgressCreate(context.Context, *protocol.WorkDoneProgressCreateParams) error {
 	return nil
 }
 

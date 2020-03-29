@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/tools/internal/telemetry"
+	"golang.org/x/tools/internal/telemetry/event"
 	"golang.org/x/tools/internal/telemetry/export"
 )
 
@@ -73,15 +73,16 @@ type traceEvent struct {
 	Tags   string
 }
 
-func (t *traces) ProcessEvent(ctx context.Context, event telemetry.Event) context.Context {
+func (t *traces) ProcessEvent(ctx context.Context, ev event.Event, tags event.TagMap) context.Context {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	span := export.GetSpan(ctx)
 	if span == nil {
 		return ctx
 	}
-	switch event.Type {
-	case telemetry.EventStartSpan:
+
+	switch {
+	case ev.IsStartSpan():
 		if t.sets == nil {
 			t.sets = make(map[string]*traceSet)
 			t.unfinished = make(map[export.SpanContext]*traceData)
@@ -92,8 +93,8 @@ func (t *traces) ProcessEvent(ctx context.Context, event telemetry.Event) contex
 			SpanID:   span.ID.SpanID,
 			ParentID: span.ParentID,
 			Name:     span.Name,
-			Start:    span.Start,
-			Tags:     renderTags(span.Tags),
+			Start:    span.Start.At,
+			Tags:     renderTags(span.Start.Tags()),
 		}
 		t.unfinished[span.ID] = td
 		// and wire up parents if we have them
@@ -108,7 +109,7 @@ func (t *traces) ProcessEvent(ctx context.Context, event telemetry.Event) contex
 		}
 		parent.Children = append(parent.Children, td)
 
-	case telemetry.EventEndSpan:
+	case ev.IsEndSpan():
 		// finishing, must be already in the map
 		td, found := t.unfinished[span.ID]
 		if !found {
@@ -116,13 +117,13 @@ func (t *traces) ProcessEvent(ctx context.Context, event telemetry.Event) contex
 		}
 		delete(t.unfinished, span.ID)
 
-		td.Finish = span.Finish
-		td.Duration = span.Finish.Sub(span.Start)
+		td.Finish = span.Finish.At
+		td.Duration = span.Finish.At.Sub(span.Start.At)
 		td.Events = make([]traceEvent, len(span.Events))
 		for i, event := range span.Events {
 			td.Events[i] = traceEvent{
 				Time: event.At,
-				Tags: renderTags(event.Tags),
+				Tags: renderTags(event.Tags()),
 			}
 		}
 
@@ -168,10 +169,10 @@ func fillOffsets(td *traceData, start time.Time) {
 	}
 }
 
-func renderTags(tags telemetry.TagList) string {
+func renderTags(tags event.TagIterator) string {
 	buf := &bytes.Buffer{}
-	for _, tag := range tags {
-		fmt.Fprintf(buf, "%v=%q ", tag.Key, tag.Value)
+	for ; tags.Valid(); tags.Advance() {
+		fmt.Fprintf(buf, "%v ", tags.Tag())
 	}
 	return buf.String()
 }

@@ -1112,18 +1112,21 @@ func (data *Data) collectWorkspaceSymbols(typ WorkspaceSymbolsTestType) func(str
 	switch typ {
 	case WorkspaceSymbolsFuzzy:
 		return func(query string, targets []span.Span) {
+			data.FuzzyWorkspaceSymbols[query] = make([]protocol.SymbolInformation, 0, len(targets))
 			for _, target := range targets {
 				data.FuzzyWorkspaceSymbols[query] = append(data.FuzzyWorkspaceSymbols[query], data.symbolInformation[target])
 			}
 		}
 	case WorkspaceSymbolsCaseSensitive:
 		return func(query string, targets []span.Span) {
+			data.CaseSensitiveWorkspaceSymbols[query] = make([]protocol.SymbolInformation, 0, len(targets))
 			for _, target := range targets {
 				data.CaseSensitiveWorkspaceSymbols[query] = append(data.CaseSensitiveWorkspaceSymbols[query], data.symbolInformation[target])
 			}
 		}
 	default:
 		return func(query string, targets []span.Span) {
+			data.WorkspaceSymbols[query] = make([]protocol.SymbolInformation, 0, len(targets))
 			for _, target := range targets {
 				data.WorkspaceSymbols[query] = append(data.WorkspaceSymbols[query], data.symbolInformation[target])
 			}
@@ -1212,7 +1215,7 @@ func testFolders(root string) ([]string, error) {
 	folders := []string{}
 	root = filepath.FromSlash(root)
 	// Get all test directories that are one level deeper than root.
-	if err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	if err := filepath.Walk(root, func(path string, info os.FileInfo, _ error) error {
 		if !info.IsDir() {
 			return nil
 		}

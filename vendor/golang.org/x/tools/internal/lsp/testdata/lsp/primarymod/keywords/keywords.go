@@ -26,6 +26,7 @@ func _() {
 	}
 
 	switch test.(type) {
+	case fo: //@complete(":")
 	case int:
 		b //@complete(" //", break)
 	case int32:
@@ -42,6 +43,11 @@ func _() {
 	}
 
 	for index := 0; index < test; index++ {
+		c //@complete(" //", const, continue)
+		b //@complete(" //", break)
+	}
+
+	for range []int{} {
 		c //@complete(" //", const, continue)
 		b //@complete(" //", break)
 	}

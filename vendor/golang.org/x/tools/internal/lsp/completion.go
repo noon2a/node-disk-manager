@@ -9,10 +9,10 @@ import (
 	"fmt"
 	"strings"
 
+	"golang.org/x/tools/internal/lsp/debug/tag"
 	"golang.org/x/tools/internal/lsp/protocol"
 	"golang.org/x/tools/internal/lsp/source"
-	"golang.org/x/tools/internal/telemetry/log"
-	"golang.org/x/tools/internal/telemetry/tag"
+	"golang.org/x/tools/internal/telemetry/event"
 )
 
 func (s *Server) completion(ctx context.Context, params *protocol.CompletionParams) (*protocol.CompletionList, error) {
@@ -30,7 +30,7 @@ func (s *Server) completion(ctx context.Context, params *protocol.CompletionPara
 	}
 
 	if err != nil {
-		log.Print(ctx, "no completions found", tag.Of("At", params.Position), tag.Of("Failure", err))
+		event.Print(ctx, "no completions found", tag.Position.Of(params.Position), event.Err.Of(err))
 	}
 	if candidates == nil {
 		return &protocol.CompletionList{
@@ -118,15 +118,6 @@ func toProtocolCompletionItems(candidates []source.CompletionItem, rng protocol.
 
 			Preselect:     i == 0,
 			Documentation: candidate.Documentation,
-		}
-		// Trigger signature help for any function or method completion.
-		// This is helpful even if a function does not have parameters,
-		// since we show return types as well.
-		switch item.Kind {
-		case protocol.FunctionCompletion, protocol.MethodCompletion:
-			item.Command = &protocol.Command{
-				Command: "editor.action.triggerParameterHints",
-			}
 		}
 		items = append(items, item)
 	}

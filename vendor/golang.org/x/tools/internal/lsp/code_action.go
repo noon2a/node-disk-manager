@@ -11,11 +11,11 @@ import (
 	"strings"
 
 	"golang.org/x/tools/internal/imports"
+	"golang.org/x/tools/internal/lsp/debug/tag"
 	"golang.org/x/tools/internal/lsp/mod"
 	"golang.org/x/tools/internal/lsp/protocol"
 	"golang.org/x/tools/internal/lsp/source"
-	"golang.org/x/tools/internal/lsp/telemetry"
-	"golang.org/x/tools/internal/telemetry/log"
+	"golang.org/x/tools/internal/telemetry/event"
 	errors "golang.org/x/xerrors"
 )
 
@@ -65,23 +65,37 @@ func (s *Server) codeAction(ctx context.Context, params *protocol.CodeActionPara
 			})
 		}
 	case source.Go:
-		edits, editsPerFix, err := source.AllImportsFixes(ctx, snapshot, fh)
-		if err != nil {
-			return nil, err
-		}
-		if diagnostics := params.Context.Diagnostics; wanted[protocol.QuickFix] && len(diagnostics) > 0 {
-			// First, add the quick fixes reported by go/analysis.
-			qf, err := quickFixes(ctx, snapshot, fh, diagnostics)
+		diagnostics := params.Context.Diagnostics
+
+		var importEdits []protocol.TextEdit
+		var importEditsPerFix []*source.ImportFix
+		var analysisQuickFixes []protocol.CodeAction
+		var highConfidenceEdits []protocol.TextDocumentEdit
+
+		// Retrieve any necessary import edits or fixes.
+		if wanted[protocol.QuickFix] && len(diagnostics) > 0 || wanted[protocol.SourceOrganizeImports] {
+			importEdits, importEditsPerFix, err = source.AllImportsFixes(ctx, snapshot, fh)
 			if err != nil {
-				log.Error(ctx, "quick fixes failed", err, telemetry.File.Of(uri))
+				return nil, err
 			}
-			codeActions = append(codeActions, qf...)
+		}
+		// Retrieve any necessary analysis fixes or edits.
+		if (wanted[protocol.QuickFix] || wanted[protocol.SourceFixAll]) && len(diagnostics) > 0 {
+			analysisQuickFixes, highConfidenceEdits, err = analysisFixes(ctx, snapshot, fh, diagnostics)
+			if err != nil {
+				event.Error(ctx, "analysis fixes failed", err, tag.URI.Of(uri))
+			}
+		}
+
+		if wanted[protocol.QuickFix] && len(diagnostics) > 0 {
+			// First, add the quick fixes reported by go/analysis.
+			codeActions = append(codeActions, analysisQuickFixes...)
 
 			// If we also have diagnostics for missing imports, we can associate them with quick fixes.
 			if findImportErrors(diagnostics) {
 				// Separate this into a set of codeActions per diagnostic, where
 				// each action is the addition, removal, or renaming of one import.
-				for _, importFix := range editsPerFix {
+				for _, importFix := range importEditsPerFix {
 					// Get the diagnostics this fix would affect.
 					if fixDiagnostics := importDiagnostics(importFix.Fix, diagnostics); len(fixDiagnostics) > 0 {
 						codeActions = append(codeActions, protocol.CodeAction{
@@ -95,20 +109,31 @@ func (s *Server) codeAction(ctx context.Context, params *protocol.CodeActionPara
 					}
 				}
 			}
-			actions, err := mod.SuggestedGoFixes(ctx, snapshot, fh, diagnostics)
+
+			// Get any actions that might be attributed to missing modules in the go.mod file.
+			actions, err := mod.SuggestedGoFixes(ctx, snapshot, diagnostics)
 			if err != nil {
-				log.Error(ctx, "quick fixes failed", err, telemetry.File.Of(uri))
+				event.Error(ctx, "quick fixes failed", err, tag.URI.Of(uri))
 			}
 			if len(actions) > 0 {
 				codeActions = append(codeActions, actions...)
 			}
 		}
-		if wanted[protocol.SourceOrganizeImports] && len(edits) > 0 {
+		if wanted[protocol.SourceOrganizeImports] && len(importEdits) > 0 {
 			codeActions = append(codeActions, protocol.CodeAction{
 				Title: "Organize Imports",
 				Kind:  protocol.SourceOrganizeImports,
 				Edit: protocol.WorkspaceEdit{
-					DocumentChanges: documentChanges(fh, edits),
+					DocumentChanges: documentChanges(fh, importEdits),
+				},
+			})
+		}
+		if wanted[protocol.SourceFixAll] && len(highConfidenceEdits) > 0 {
+			codeActions = append(codeActions, protocol.CodeAction{
+				Title: "Simplifications",
+				Kind:  protocol.SourceFixAll,
+				Edit: protocol.WorkspaceEdit{
+					DocumentChanges: highConfidenceEdits,
 				},
 			})
 		}
@@ -134,11 +159,6 @@ func (s *Server) getSupportedCodeActions() []protocol.CodeActionKind {
 		return result[i] < result[j]
 	})
 	return result
-}
-
-type protocolImportFix struct {
-	fix   *imports.ImportFix
-	edits []protocol.TextEdit
 }
 
 // findImports determines if a given diagnostic represents an error that could
@@ -204,23 +224,28 @@ func importDiagnostics(fix *imports.ImportFix, diagnostics []protocol.Diagnostic
 	return results
 }
 
-func quickFixes(ctx context.Context, snapshot source.Snapshot, fh source.FileHandle, diagnostics []protocol.Diagnostic) ([]protocol.CodeAction, error) {
+func analysisFixes(ctx context.Context, snapshot source.Snapshot, fh source.FileHandle, diagnostics []protocol.Diagnostic) ([]protocol.CodeAction, []protocol.TextDocumentEdit, error) {
+	if len(diagnostics) == 0 {
+		return nil, nil, nil
+	}
+
 	var codeActions []protocol.CodeAction
+	var sourceFixAllEdits []protocol.TextDocumentEdit
 
 	phs, err := snapshot.PackageHandles(ctx, fh)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// We get the package that source.Diagnostics would've used. This is hack.
 	// TODO(golang/go#32443): The correct solution will be to cache diagnostics per-file per-snapshot.
 	ph, err := source.WidestPackageHandle(phs)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, diag := range diagnostics {
 		// This code assumes that the analyzer name is the Source of the diagnostic.
 		// If this ever changes, this will need to be addressed.
-		srcErr, err := snapshot.FindAnalysisError(ctx, ph.ID(), diag.Source, diag.Message, diag.Range)
+		srcErr, analyzer, err := snapshot.FindAnalysisError(ctx, ph.ID(), diag.Source, diag.Message, diag.Range)
 		if err != nil {
 			continue
 		}
@@ -234,15 +259,19 @@ func quickFixes(ctx context.Context, snapshot source.Snapshot, fh source.FileHan
 			for uri, edits := range fix.Edits {
 				fh, err := snapshot.GetFile(uri)
 				if err != nil {
-					log.Error(ctx, "no file", err, telemetry.URI.Of(uri))
+					event.Error(ctx, "no file", err, tag.URI.Of(uri))
 					continue
 				}
-				action.Edit.DocumentChanges = append(action.Edit.DocumentChanges, documentChanges(fh, edits)...)
+				docChanges := documentChanges(fh, edits)
+				if analyzer.HighConfidence {
+					sourceFixAllEdits = append(sourceFixAllEdits, docChanges...)
+				}
+				action.Edit.DocumentChanges = append(action.Edit.DocumentChanges, docChanges...)
 			}
 			codeActions = append(codeActions, action)
 		}
 	}
-	return codeActions, nil
+	return codeActions, sourceFixAllEdits, nil
 }
 
 func documentChanges(fh source.FileHandle, edits []protocol.TextEdit) []protocol.TextDocumentEdit {

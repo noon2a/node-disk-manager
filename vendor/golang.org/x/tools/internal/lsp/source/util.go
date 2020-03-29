@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strings"
 
+	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/internal/lsp/protocol"
 	"golang.org/x/tools/internal/span"
 	errors "golang.org/x/xerrors"
@@ -272,34 +273,39 @@ func exprAtPos(pos token.Pos, args []ast.Expr) int {
 	return len(args)
 }
 
-// fieldSelections returns the set of fields that can
-// be selected from a value of type T.
-func fieldSelections(T types.Type) (fields []*types.Var) {
+// eachField invokes fn for each field that can be selected from a
+// value of type T.
+func eachField(T types.Type, fn func(*types.Var)) {
 	// TODO(adonovan): this algorithm doesn't exclude ambiguous
 	// selections that match more than one field/method.
 	// types.NewSelectionSet should do that for us.
 
-	seen := make(map[*types.Var]bool) // for termination on recursive types
+	// for termination on recursive types
+	var seen map[*types.Struct]bool
 
 	var visit func(T types.Type)
 	visit = func(T types.Type) {
 		if T, ok := deref(T).Underlying().(*types.Struct); ok {
+			if seen[T] {
+				return
+			}
+
 			for i := 0; i < T.NumFields(); i++ {
 				f := T.Field(i)
-				if seen[f] {
-					continue
-				}
-				seen[f] = true
-				fields = append(fields, f)
+				fn(f)
 				if f.Anonymous() {
+					if seen == nil {
+						// Lazily create "seen" since it is only needed for
+						// embedded structs.
+						seen = make(map[*types.Struct]bool)
+					}
+					seen[T] = true
 					visit(f.Type())
 				}
 			}
 		}
 	}
 	visit(T)
-
-	return fields
 }
 
 // typeIsValid reports whether typ doesn't contain any Invalid types.
@@ -452,7 +458,7 @@ func enclosingSelector(path []ast.Node, pos token.Pos) *ast.SelectorExpr {
 	return nil
 }
 
-func enclosingValueSpec(path []ast.Node, pos token.Pos) *ast.ValueSpec {
+func enclosingValueSpec(path []ast.Node) *ast.ValueSpec {
 	for _, n := range path {
 		if vs, ok := n.(*ast.ValueSpec); ok {
 			return vs
@@ -498,7 +504,7 @@ func formatParams(ctx context.Context, s Snapshot, pkg Package, sig *types.Signa
 	params := make([]string, 0, sig.Params().Len())
 	for i := 0; i < sig.Params().Len(); i++ {
 		el := sig.Params().At(i)
-		typ, err := formatFieldType(ctx, s, pkg, el, qf)
+		typ, err := formatFieldType(ctx, s, pkg, el)
 		if err != nil {
 			typ = types.TypeString(el.Type(), qf)
 		}
@@ -517,7 +523,7 @@ func formatParams(ctx context.Context, s Snapshot, pkg Package, sig *types.Signa
 	return params
 }
 
-func formatFieldType(ctx context.Context, s Snapshot, srcpkg Package, obj types.Object, qf types.Qualifier) (string, error) {
+func formatFieldType(ctx context.Context, s Snapshot, srcpkg Package, obj types.Object) (string, error) {
 	file, pkg, err := findPosInPackage(s.View(), srcpkg, obj.Pos())
 	if err != nil {
 		return "", err
@@ -718,4 +724,132 @@ func FindFileInPackage(pkg Package, uri span.URI) (ParseGoHandle, Package, error
 		}
 	}
 	return nil, nil, errors.Errorf("no file for %s in package %s", uri, pkg.ID())
+}
+
+// prevStmt returns the statement that precedes the statement containing pos.
+// For example:
+//
+//     foo := 1
+//     bar(1 + 2<>)
+//
+// If "<>" is pos, prevStmt returns "foo := 1"
+func prevStmt(pos token.Pos, path []ast.Node) ast.Stmt {
+	var blockLines []ast.Stmt
+	for i := 0; i < len(path) && blockLines == nil; i++ {
+		switch n := path[i].(type) {
+		case *ast.BlockStmt:
+			blockLines = n.List
+		case *ast.CommClause:
+			blockLines = n.Body
+		case *ast.CaseClause:
+			blockLines = n.Body
+		}
+	}
+
+	for i := len(blockLines) - 1; i >= 0; i-- {
+		if blockLines[i].End() < pos {
+			return blockLines[i]
+		}
+	}
+
+	return nil
+}
+
+// formatZeroValue produces Go code representing the zero value of T.
+func formatZeroValue(T types.Type, qf types.Qualifier) string {
+	switch u := T.Underlying().(type) {
+	case *types.Basic:
+		switch {
+		case u.Info()&types.IsNumeric > 0:
+			return "0"
+		case u.Info()&types.IsString > 0:
+			return `""`
+		case u.Info()&types.IsBoolean > 0:
+			return "false"
+		default:
+			panic(fmt.Sprintf("unhandled basic type: %v", u))
+		}
+	case *types.Pointer, *types.Interface, *types.Chan, *types.Map, *types.Slice, *types.Signature:
+		return "nil"
+	default:
+		return types.TypeString(T, qf) + "{}"
+	}
+}
+
+func zeroValue(fset *token.FileSet, f *ast.File, pkg *types.Package, typ types.Type) ast.Expr {
+	under := typ
+	if n, ok := typ.(*types.Named); ok {
+		under = n.Underlying()
+	}
+	switch u := under.(type) {
+	case *types.Basic:
+		switch {
+		case u.Info()&types.IsNumeric != 0:
+			return &ast.BasicLit{Kind: token.INT, Value: "0"}
+		case u.Info()&types.IsBoolean != 0:
+			return &ast.Ident{Name: "false"}
+		case u.Info()&types.IsString != 0:
+			return &ast.BasicLit{Kind: token.STRING, Value: `""`}
+		default:
+			panic("unknown basic type")
+		}
+	case *types.Chan, *types.Interface, *types.Map, *types.Pointer, *types.Signature, *types.Slice:
+		return ast.NewIdent("nil")
+	case *types.Struct:
+		texpr := typeExpr(fset, f, pkg, typ) // typ because we want the name here.
+		if texpr == nil {
+			return nil
+		}
+		return &ast.CompositeLit{
+			Type: texpr,
+		}
+	case *types.Array:
+		texpr := typeExpr(fset, f, pkg, u.Elem())
+		if texpr == nil {
+			return nil
+		}
+		return &ast.CompositeLit{
+			Type: &ast.ArrayType{
+				Elt: texpr,
+				Len: &ast.BasicLit{Kind: token.INT, Value: fmt.Sprintf("%v", u.Len())},
+			},
+		}
+	}
+	return nil
+}
+
+func typeExpr(fset *token.FileSet, f *ast.File, pkg *types.Package, typ types.Type) ast.Expr {
+	switch t := typ.(type) {
+	case *types.Basic:
+		switch t.Kind() {
+		case types.UnsafePointer:
+			return &ast.SelectorExpr{X: ast.NewIdent("unsafe"), Sel: ast.NewIdent("Pointer")}
+		default:
+			return ast.NewIdent(t.Name())
+		}
+	case *types.Named:
+		if t.Obj().Pkg() == pkg {
+			return ast.NewIdent(t.Obj().Name())
+		}
+		pkgName := t.Obj().Pkg().Name()
+		// If the file already imports the package under another name, use that.
+		for _, group := range astutil.Imports(fset, f) {
+			for _, cand := range group {
+				if strings.Trim(cand.Path.Value, `"`) == t.Obj().Pkg().Path() {
+					if cand.Name != nil && cand.Name.Name != "" {
+						pkgName = cand.Name.Name
+					}
+				}
+			}
+		}
+		if pkgName == "." {
+			return ast.NewIdent(t.Obj().Name())
+		}
+		return &ast.SelectorExpr{
+			X:   ast.NewIdent(pkgName),
+			Sel: ast.NewIdent(t.Obj().Name()),
+		}
+	default:
+		return nil // TODO: anonymous structs, but who does that
+	}
 }

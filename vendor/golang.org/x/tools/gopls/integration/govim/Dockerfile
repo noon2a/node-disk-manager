@@ -4,7 +4,7 @@
 
 # govim requires a more recent version of vim than is available in most
 # distros, so we build from their base image.
-FROM govim/govim:go1.14_vim_v8.1.2056_v1
+FROM govim/govim:latest-vim
 
 # We use a pinned version of govim so that this build is repeatable, and so
 # that we're not sensitive to test breakages in govim.
@@ -17,4 +17,4 @@ WORKDIR /src
 # a redundant copy of govim to the build cache using `go mod download`.
 RUN GOVIM_VERSION=$(go mod download -json github.com/govim/govim@latest | jq -r .Version) && \
     git clone https://github.com/govim/govim /src/govim && cd /src/govim && \
-    git checkout $GOVIM_VERSION
+    git checkout master

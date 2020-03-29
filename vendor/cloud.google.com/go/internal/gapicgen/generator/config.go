@@ -618,6 +618,22 @@ var microgenGapicConfigs = []*microgenConfig{
 		apiServiceConfigPath:  "google/cloud/automl/v1beta1/automl_v1beta1.yaml",
 		releaseLevel:          "beta",
 	},
+	{
+		inputDirectoryPath:    "google/container/v1",
+		pkg:                   "container",
+		importPath:            "cloud.google.com/go/container/apiv1",
+		gRPCServiceConfigPath: "google/container/v1/container_grpc_service_config.json",
+		apiServiceConfigPath:  "google/container/v1/container_v1.yaml",
+		releaseLevel:          "ga",
+	},
+	{
+		inputDirectoryPath:    "google/cloud/servicedirectory/v1beta1",
+		pkg:                   "servicedirectory",
+		importPath:            "cloud.google.com/go/servicedirectory/apiv1beta1",
+		gRPCServiceConfigPath: "google/cloud/servicedirectory/v1beta1/servicedirectory_grpc_service_config.json",
+		apiServiceConfigPath:  "google/cloud/servicedirectory/v1beta1/servicedirectory_v1beta1.yaml",
+		releaseLevel:          "beta",
+	},
 }
 
 // Relative to gocloud dir.
@@ -631,8 +647,3 @@ var gapicsWithManual = []string{
 	"spanner/apiv1",
 	"trace/apiv1",
 }
-
-// Relative to googleapis dir.
-var artmanGapicConfigPaths = []string{}
-
-var artmanGapicManifestEntries = []manifestEntry{}

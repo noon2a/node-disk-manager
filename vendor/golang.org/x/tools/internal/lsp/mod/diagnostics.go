@@ -12,11 +12,10 @@ import (
 	"regexp"
 
 	"golang.org/x/mod/modfile"
+	"golang.org/x/tools/internal/lsp/debug/tag"
 	"golang.org/x/tools/internal/lsp/protocol"
 	"golang.org/x/tools/internal/lsp/source"
-	"golang.org/x/tools/internal/lsp/telemetry"
-	"golang.org/x/tools/internal/telemetry/log"
-	"golang.org/x/tools/internal/telemetry/trace"
+	"golang.org/x/tools/internal/telemetry/event"
 )
 
 func Diagnostics(ctx context.Context, snapshot source.Snapshot) (map[source.FileIdentity][]source.Diagnostic, map[string]*modfile.Require, error) {
@@ -28,7 +27,7 @@ func Diagnostics(ctx context.Context, snapshot source.Snapshot) (map[source.File
 		return nil, nil, nil
 	}
 
-	ctx, done := trace.StartSpan(ctx, "mod.Diagnostics", telemetry.File.Of(realURI))
+	ctx, done := event.StartSpan(ctx, "mod.Diagnostics", tag.URI.Of(realURI))
 	defer done()
 
 	realfh, err := snapshot.GetFile(realURI)
@@ -45,7 +44,7 @@ func Diagnostics(ctx context.Context, snapshot source.Snapshot) (map[source.File
 	}
 
 	reports := map[source.FileIdentity][]source.Diagnostic{
-		realfh.Identity(): []source.Diagnostic{},
+		realfh.Identity(): {},
 	}
 	for _, e := range parseErrors {
 		diag := source.Diagnostic{
@@ -98,7 +97,7 @@ func SuggestedFixes(ctx context.Context, snapshot source.Snapshot, realfh source
 				for uri, edits := range fix.Edits {
 					fh, err := snapshot.GetFile(uri)
 					if err != nil {
-						log.Error(ctx, "no file", err, telemetry.URI.Of(uri))
+						event.Error(ctx, "no file", err, tag.URI.Of(uri))
 						continue
 					}
 					action.Edit.DocumentChanges = append(action.Edit.DocumentChanges, protocol.TextDocumentEdit{
@@ -118,7 +117,7 @@ func SuggestedFixes(ctx context.Context, snapshot source.Snapshot, realfh source
 	return actions
 }
 
-func SuggestedGoFixes(ctx context.Context, snapshot source.Snapshot, gofh source.FileHandle, diags []protocol.Diagnostic) ([]protocol.CodeAction, error) {
+func SuggestedGoFixes(ctx context.Context, snapshot source.Snapshot, diags []protocol.Diagnostic) ([]protocol.CodeAction, error) {
 	// TODO: We will want to support diagnostics for go.mod files even when the -modfile flag is turned off.
 	realURI, tempURI := snapshot.View().ModFiles()
 
@@ -127,7 +126,7 @@ func SuggestedGoFixes(ctx context.Context, snapshot source.Snapshot, gofh source
 		return nil, nil
 	}
 
-	ctx, done := trace.StartSpan(ctx, "mod.SuggestedGoFixes", telemetry.File.Of(realURI))
+	ctx, done := event.StartSpan(ctx, "mod.SuggestedGoFixes", tag.URI.Of(realURI))
 	defer done()
 
 	realfh, err := snapshot.GetFile(realURI)

@@ -9,15 +9,16 @@ import (
 	"fmt"
 	"io"
 
-	"golang.org/x/tools/internal/telemetry"
+	"golang.org/x/tools/internal/telemetry/event"
 )
 
-// LogWriter returns an observer that logs events to the supplied writer.
+// LogWriter returns an Exporter that logs events to the supplied writer.
 // If onlyErrors is true it does not log any event that did not have an
 // associated error.
 // It ignores all telemetry other than log events.
-func LogWriter(w io.Writer, onlyErrors bool) Exporter {
-	return &logWriter{writer: w, onlyErrors: onlyErrors}
+func LogWriter(w io.Writer, onlyErrors bool) event.Exporter {
+	lw := &logWriter{writer: w, onlyErrors: onlyErrors}
+	return lw.ProcessEvent
 }
 
 type logWriter struct {
@@ -25,25 +26,24 @@ type logWriter struct {
 	onlyErrors bool
 }
 
-func (w *logWriter) ProcessEvent(ctx context.Context, event telemetry.Event) context.Context {
-	switch event.Type {
-	case telemetry.EventLog:
-		if w.onlyErrors && event.Error == nil {
+func (w *logWriter) ProcessEvent(ctx context.Context, ev event.Event, tagMap event.TagMap) context.Context {
+	switch {
+	case ev.IsLog():
+		if w.onlyErrors && event.Err.Get(tagMap) == nil {
 			return ctx
 		}
-		fmt.Fprintf(w.writer, "%v\n", event)
-	case telemetry.EventStartSpan:
+		fmt.Fprintf(w.writer, "%v\n", ev)
+	case ev.IsStartSpan():
 		if span := GetSpan(ctx); span != nil {
 			fmt.Fprintf(w.writer, "start: %v %v", span.Name, span.ID)
 			if span.ParentID.IsValid() {
 				fmt.Fprintf(w.writer, "[%v]", span.ParentID)
 			}
 		}
-	case telemetry.EventEndSpan:
+	case ev.IsEndSpan():
 		if span := GetSpan(ctx); span != nil {
 			fmt.Fprintf(w.writer, "finish: %v %v", span.Name, span.ID)
 		}
 	}
 	return ctx
 }
-func (w *logWriter) Metric(context.Context, telemetry.MetricData) {}

@@ -157,7 +157,7 @@ The mapping between Spanner types and Go types internal to this package are:
 	BYTES		[]byte
 	DATE		string (RFC 3339 date; "YYYY-MM-DD")
 	TIMESTAMP	string (RFC 3339 timestamp with zone; "YYYY-MM-DDTHH:MM:SSZ")
-	ARRAY<T>	[]T
+	ARRAY<T>	[]interface{}
 	STRUCT		TODO
 */
 type row []interface{}
@@ -169,6 +169,15 @@ func (r row) copyDataElem(index int) interface{} {
 		v = append([]interface{}(nil), is...)
 	}
 	return v
+}
+
+// copyData returns a copy of the row.
+func (r row) copyAllData() row {
+	dst := make(row, 0, len(r))
+	for i := range r {
+		dst = append(dst, r.copyDataElem(i))
+	}
+	return dst
 }
 
 // copyData returns a copy of a subset of a row.
@@ -187,6 +196,40 @@ func (d *database) LastCommitTimestamp() time.Time {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.lastTS
+}
+
+func (d *database) GetDDL() []spansql.DDLStmt {
+	// This lacks fidelity, but captures the details we support.
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	var stmts []spansql.DDLStmt
+
+	for name, t := range d.tables {
+		ct := &spansql.CreateTable{
+			Name: name,
+		}
+
+		t.mu.Lock()
+		for i, col := range t.cols {
+			ct.Columns = append(ct.Columns, spansql.ColumnDef{
+				Name: col.Name,
+				Type: col.Type,
+				// TODO: NotNull, AllowCommitTimestamp
+			})
+			if i < t.pkCols {
+				ct.PrimaryKey = append(ct.PrimaryKey, spansql.KeyPart{
+					Column: col.Name,
+					Desc:   t.pkDesc[i],
+				})
+			}
+		}
+		t.mu.Unlock()
+
+		stmts = append(stmts, ct)
+	}
+
+	return stmts
 }
 
 func (d *database) ApplyDDL(stmt spansql.DDLStmt) *status.Status {

@@ -29,7 +29,7 @@ func TestParseQuery(t *testing.T) {
 		want Query
 	}{
 		{`SELECT 17`, Query{Select: Select{List: []Expr{IntegerLiteral(17)}}}},
-		{`SELECT Alias FROM Characters WHERE Age < @ageLimit AND Alias IS NOT NULL ORDER BY Age DESC LIMIT @limit` + "\n\t",
+		{`SELECT Alias AS aka FROM Characters WHERE Age < @ageLimit AND Alias IS NOT NULL ORDER BY Age DESC LIMIT @limit OFFSET 3` + "\n\t",
 			Query{
 				Select: Select{
 					List: []Expr{ID("Alias")},
@@ -49,12 +49,14 @@ func TestParseQuery(t *testing.T) {
 							RHS: Null,
 						},
 					},
+					ListAliases: []string{"aka"},
 				},
 				Order: []Order{{
 					Expr: ID("Age"),
 					Desc: true,
 				}},
-				Limit: Param("limit"),
+				Limit:  Param("limit"),
+				Offset: IntegerLiteral(3),
 			},
 		},
 		{`SELECT COUNT(*) FROM Packages`,
@@ -78,7 +80,7 @@ func TestParseQuery(t *testing.T) {
 				},
 			},
 		},
-		{`SELECT SUM(PointsScored), FirstName, LastName FROM PlayerStats GROUP BY FirstName, LastName`,
+		{`SELECT SUM(PointsScored) AS total_points, FirstName, LastName AS surname FROM PlayerStats GROUP BY FirstName, LastName`,
 			Query{
 				Select: Select{
 					List: []Expr{
@@ -86,8 +88,9 @@ func TestParseQuery(t *testing.T) {
 						ID("FirstName"),
 						ID("LastName"),
 					},
-					From:    []SelectFrom{{Table: "PlayerStats"}},
-					GroupBy: []Expr{ID("FirstName"), ID("LastName")},
+					From:        []SelectFrom{{Table: "PlayerStats"}},
+					GroupBy:     []Expr{ID("FirstName"), ID("LastName")},
+					ListAliases: []string{"total_points", "", "surname"},
 				},
 			},
 		},
@@ -134,6 +137,7 @@ func TestParseExpr(t *testing.T) {
 		{`Speech NOT LIKE "_oo"`, ComparisonOp{LHS: ID("Speech"), Op: NotLike, RHS: StringLiteral("_oo")}},
 		{`A AND NOT B`, LogicalOp{LHS: ID("A"), Op: And, RHS: LogicalOp{Op: Not, RHS: ID("B")}}},
 		{`X BETWEEN Y AND Z`, ComparisonOp{LHS: ID("X"), Op: Between, RHS: ID("Y"), RHS2: ID("Z")}},
+		{`@needle IN UNNEST(@haystack)`, InOp{LHS: Param("needle"), RHS: []Expr{Param("haystack")}, Unnest: true}},
 
 		// String literal:
 		// Accept double quote and single quote.
@@ -246,13 +250,18 @@ func TestParseDDL(t *testing.T) {
 		) STORING (Count), INTERLEAVE IN SomeTable;
 		CREATE TABLE FooBarAux (
 			System STRING(MAX) NOT NULL,
+			CONSTRAINT Con1 FOREIGN KEY (System) REFERENCES FooBar (System),
 			RepoPath STRING(MAX) NOT NULL,
+			FOREIGN KEY (System, RepoPath) REFERENCES Stranger (Sys, RPath), -- unnamed foreign key
 			Author STRING(MAX) NOT NULL,
+			CONSTRAINT BOOL,  -- not a constraint
 		) PRIMARY KEY(System, RepoPath, Author),
 		  INTERLEAVE IN PARENT FooBar ON DELETE CASCADE;
 
 		ALTER TABLE FooBar ADD COLUMN TZ BYTES(20);
 		ALTER TABLE FooBar DROP COLUMN TZ;
+		ALTER TABLE FooBar ADD CONSTRAINT Con2 FOREIGN KEY (RepoPath) REFERENCES Repos (RPath);
+		ALTER TABLE FooBar DROP CONSTRAINT Con3;
 		ALTER TABLE FooBar SET ON DELETE NO ACTION;
 		ALTER TABLE FooBar ALTER COLUMN Author STRING(MAX) NOT NULL;
 
@@ -294,8 +303,30 @@ func TestParseDDL(t *testing.T) {
 				Name: "FooBarAux",
 				Columns: []ColumnDef{
 					{Name: "System", Type: Type{Base: String, Len: MaxLen}, NotNull: true, Position: line(12)},
-					{Name: "RepoPath", Type: Type{Base: String, Len: MaxLen}, NotNull: true, Position: line(13)},
-					{Name: "Author", Type: Type{Base: String, Len: MaxLen}, NotNull: true, Position: line(14)},
+					{Name: "RepoPath", Type: Type{Base: String, Len: MaxLen}, NotNull: true, Position: line(14)},
+					{Name: "Author", Type: Type{Base: String, Len: MaxLen}, NotNull: true, Position: line(16)},
+					{Name: "CONSTRAINT", Type: Type{Base: Bool}, Position: line(17)},
+				},
+				Constraints: []TableConstraint{
+					{
+						Name: "Con1",
+						ForeignKey: ForeignKey{
+							Columns:    []string{"System"},
+							RefTable:   "FooBar",
+							RefColumns: []string{"System"},
+							Position:   line(13),
+						},
+						Position: line(13),
+					},
+					{
+						ForeignKey: ForeignKey{
+							Columns:    []string{"System", "RepoPath"},
+							RefTable:   "Stranger",
+							RefColumns: []string{"Sys", "RPath"},
+							Position:   line(15),
+						},
+						Position: line(15),
+					},
 				},
 				PrimaryKey: []KeyPart{
 					{Column: "System"},
@@ -310,18 +341,37 @@ func TestParseDDL(t *testing.T) {
 			},
 			&AlterTable{
 				Name:       "FooBar",
-				Alteration: AddColumn{Def: ColumnDef{Name: "TZ", Type: Type{Base: Bytes, Len: 20}, Position: line(18)}},
-				Position:   line(18),
+				Alteration: AddColumn{Def: ColumnDef{Name: "TZ", Type: Type{Base: Bytes, Len: 20}, Position: line(21)}},
+				Position:   line(21),
 			},
 			&AlterTable{
 				Name:       "FooBar",
 				Alteration: DropColumn{Name: "TZ"},
-				Position:   line(19),
+				Position:   line(22),
+			},
+			&AlterTable{
+				Name: "FooBar",
+				Alteration: AddConstraint{Constraint: TableConstraint{
+					Name: "Con2",
+					ForeignKey: ForeignKey{
+						Columns:    []string{"RepoPath"},
+						RefTable:   "Repos",
+						RefColumns: []string{"RPath"},
+						Position:   line(23),
+					},
+					Position: line(23),
+				}},
+				Position: line(23),
+			},
+			&AlterTable{
+				Name:       "FooBar",
+				Alteration: DropConstraint{Name: "Con3"},
+				Position:   line(24),
 			},
 			&AlterTable{
 				Name:       "FooBar",
 				Alteration: SetOnDelete{Action: NoActionOnDelete},
-				Position:   line(20),
+				Position:   line(25),
 			},
 			&AlterTable{
 				Name: "FooBar",
@@ -329,21 +379,21 @@ func TestParseDDL(t *testing.T) {
 					Name:     "Author",
 					Type:     Type{Base: String, Len: MaxLen},
 					NotNull:  true,
-					Position: line(21),
+					Position: line(26),
 				}},
-				Position: line(21),
+				Position: line(26),
 			},
-			&DropIndex{Name: "MyFirstIndex", Position: line(23)},
-			&DropTable{Name: "FooBar", Position: line(24)},
+			&DropIndex{Name: "MyFirstIndex", Position: line(28)},
+			&DropTable{Name: "FooBar", Position: line(29)},
 			&CreateTable{
 				Name: "NonScalars",
 				Columns: []ColumnDef{
-					{Name: "Dummy", Type: Type{Base: Int64}, NotNull: true, Position: line(29)},
-					{Name: "Ids", Type: Type{Array: true, Base: Int64}, Position: line(30)},
-					{Name: "Names", Type: Type{Array: true, Base: String, Len: MaxLen}, Position: line(31)},
+					{Name: "Dummy", Type: Type{Base: Int64}, NotNull: true, Position: line(34)},
+					{Name: "Ids", Type: Type{Array: true, Base: Int64}, Position: line(35)},
+					{Name: "Names", Type: Type{Array: true, Base: String, Len: MaxLen}, Position: line(36)},
 				},
 				PrimaryKey: []KeyPart{{Column: "Dummy"}},
-				Position:   line(28),
+				Position:   line(33),
 			},
 		}, Comments: []*Comment{
 			{Marker: "#", Start: line(2), End: line(2),
@@ -352,11 +402,15 @@ func TestParseDDL(t *testing.T) {
 				Text: []string{"This is another comment."}},
 			{Marker: "/*", Start: line(4), End: line(5),
 				Text: []string{" This is a", "\t\t\t\t\t\t  * multiline comment."}},
-			{Marker: "--", Isolated: true, Start: line(26), End: line(27),
+			{Marker: "--", Start: line(15), End: line(15),
+				Text: []string{"unnamed foreign key"}},
+			{Marker: "--", Start: line(17), End: line(17),
+				Text: []string{"not a constraint"}},
+			{Marker: "--", Isolated: true, Start: line(31), End: line(32),
 				Text: []string{"This table has some commentary", "that spans multiple lines."}},
 			// These comments shouldn't get combined:
-			{Marker: "--", Start: line(29), End: line(29), Text: []string{"dummy comment"}},
-			{Marker: "--", Start: line(30), End: line(30), Text: []string{"comment on ids"}},
+			{Marker: "--", Start: line(34), End: line(34), Text: []string{"dummy comment"}},
+			{Marker: "--", Start: line(35), End: line(35), Text: []string{"comment on ids"}},
 		}}},
 		// No trailing comma:
 		{`ALTER TABLE T ADD COLUMN C2 INT64`, &DDL{Filename: "filename", List: []DDLStmt{

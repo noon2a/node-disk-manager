@@ -18,13 +18,13 @@ import (
 	"golang.org/x/tools/internal/lsp/diff"
 	"golang.org/x/tools/internal/lsp/protocol"
 	"golang.org/x/tools/internal/span"
-	"golang.org/x/tools/internal/telemetry/trace"
+	"golang.org/x/tools/internal/telemetry/event"
 	errors "golang.org/x/xerrors"
 )
 
 // Format formats a file with a given range.
 func Format(ctx context.Context, snapshot Snapshot, fh FileHandle) ([]protocol.TextEdit, error) {
-	ctx, done := trace.StartSpan(ctx, "source.Format")
+	ctx, done := event.StartSpan(ctx, "source.Format")
 	defer done()
 
 	pgh := snapshot.View().Session().Cache().ParseGoHandle(fh, ParseFull)
@@ -36,7 +36,7 @@ func Format(ctx context.Context, snapshot Snapshot, fh FileHandle) ([]protocol.T
 	// Using format.Node on an AST with errors may result in code being modified.
 	// Attempt to format the source of this file instead.
 	if parseErrors != nil {
-		formatted, err := formatSource(ctx, snapshot, fh)
+		formatted, err := formatSource(ctx, fh)
 		if err != nil {
 			return nil, err
 		}
@@ -56,8 +56,8 @@ func Format(ctx context.Context, snapshot Snapshot, fh FileHandle) ([]protocol.T
 	return computeTextEdits(ctx, snapshot.View(), pgh.File(), m, buf.String())
 }
 
-func formatSource(ctx context.Context, s Snapshot, fh FileHandle) ([]byte, error) {
-	ctx, done := trace.StartSpan(ctx, "source.formatSource")
+func formatSource(ctx context.Context, fh FileHandle) ([]byte, error) {
+	ctx, done := event.StartSpan(ctx, "source.formatSource")
 	defer done()
 
 	data, _, err := fh.Read(ctx)
@@ -77,13 +77,10 @@ type ImportFix struct {
 // it returns a list of fixes that could be applied to the file, with the
 // corresponding TextEdits that would be needed to apply that fix.
 func AllImportsFixes(ctx context.Context, snapshot Snapshot, fh FileHandle) (allFixEdits []protocol.TextEdit, editsPerFix []*ImportFix, err error) {
-	ctx, done := trace.StartSpan(ctx, "source.AllImportsFixes")
+	ctx, done := event.StartSpan(ctx, "source.AllImportsFixes")
 	defer done()
 
-	_, pgh, err := getParsedFile(ctx, snapshot, fh, NarrowestPackageHandle)
-	if err != nil {
-		return nil, nil, errors.Errorf("getting file for AllImportsFixes: %v", err)
-	}
+	pgh := snapshot.View().Session().Cache().ParseGoHandle(fh, ParseFull)
 	err = snapshot.View().RunProcessEnvFunc(ctx, func(opts *imports.Options) error {
 		allFixEdits, editsPerFix, err = computeImportEdits(ctx, snapshot.View(), pgh, opts)
 		return err
@@ -295,7 +292,7 @@ func trimToFirstNonImport(fset *token.FileSet, f *ast.File, src []byte, err erro
 }
 
 func computeTextEdits(ctx context.Context, view View, fh FileHandle, m *protocol.ColumnMapper, formatted string) ([]protocol.TextEdit, error) {
-	ctx, done := trace.StartSpan(ctx, "source.computeTextEdits")
+	ctx, done := event.StartSpan(ctx, "source.computeTextEdits")
 	defer done()
 
 	data, _, err := fh.Read(ctx)

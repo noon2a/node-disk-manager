@@ -25,14 +25,16 @@ import (
 )
 
 // TODO: More Position fields throughout; maybe in Query/Select.
+// TODO: Perhaps identifiers in the AST should be ID-typed.
 
 // CreateTable represents a CREATE TABLE statement.
 // https://cloud.google.com/spanner/docs/data-definition-language#create_table
 type CreateTable struct {
-	Name       string
-	Columns    []ColumnDef
-	PrimaryKey []KeyPart
-	Interleave *Interleave
+	Name        string
+	Columns     []ColumnDef
+	Constraints []TableConstraint
+	PrimaryKey  []KeyPart
+	Interleave  *Interleave
 
 	Position Position // position of the "CREATE" token
 }
@@ -45,7 +47,25 @@ func (ct *CreateTable) clearOffset() {
 		// Mutate in place.
 		ct.Columns[i].clearOffset()
 	}
+	for i := range ct.Constraints {
+		// Mutate in place.
+		ct.Constraints[i].clearOffset()
+	}
 	ct.Position.Offset = 0
+}
+
+// TableConstraint represents a constraint on a table.
+type TableConstraint struct {
+	Name       string // may be empty
+	ForeignKey ForeignKey
+
+	Position Position // position of the "CONSTRAINT" or "FOREIGN" token
+}
+
+func (tc TableConstraint) Pos() Position { return tc.Position }
+func (tc *TableConstraint) clearOffset() {
+	tc.Position.Offset = 0
+	tc.ForeignKey.clearOffset()
 }
 
 // Interleave represents an interleave clause of a CREATE TABLE statement.
@@ -118,6 +138,9 @@ func (at *AlterTable) clearOffset() {
 	case AddColumn:
 		alt.Def.clearOffset()
 		at.Alteration = alt
+	case AddConstraint:
+		alt.Constraint.clearOffset()
+		at.Alteration = alt
 	case AlterColumn:
 		alt.Def.clearOffset()
 		at.Alteration = alt
@@ -131,13 +154,17 @@ type TableAlteration interface {
 	SQL() string
 }
 
-func (AddColumn) isTableAlteration()   {}
-func (DropColumn) isTableAlteration()  {}
-func (SetOnDelete) isTableAlteration() {}
-func (AlterColumn) isTableAlteration() {}
+func (AddColumn) isTableAlteration()      {}
+func (DropColumn) isTableAlteration()     {}
+func (AddConstraint) isTableAlteration()  {}
+func (DropConstraint) isTableAlteration() {}
+func (SetOnDelete) isTableAlteration()    {}
+func (AlterColumn) isTableAlteration()    {}
 
 type AddColumn struct{ Def ColumnDef }
 type DropColumn struct{ Name string }
+type AddConstraint struct{ Constraint TableConstraint }
+type DropConstraint struct{ Name string }
 type SetOnDelete struct{ Action OnDelete }
 type AlterColumn struct{ Def ColumnDef }
 
@@ -181,6 +208,19 @@ type ColumnDef struct {
 func (cd ColumnDef) Pos() Position { return cd.Position }
 func (cd *ColumnDef) clearOffset() { cd.Position.Offset = 0 }
 
+// ForeignKey represents a foreign key definition as part of a CREATE TABLE
+// or ALTER TABLE statement.
+type ForeignKey struct {
+	Columns    []string
+	RefTable   string
+	RefColumns []string
+
+	Position Position // position of the "FOREIGN" token
+}
+
+func (fk ForeignKey) Pos() Position { return fk.Position }
+func (fk *ForeignKey) clearOffset() { fk.Position.Offset = 0 }
+
 // Type represents a column type.
 type Type struct {
 	Array bool
@@ -214,7 +254,8 @@ type KeyPart struct {
 type Query struct {
 	Select Select
 	Order  []Order
-	Limit  Limit
+
+	Limit, Offset LiteralOrParam
 }
 
 // Select represents a SELECT statement.
@@ -226,6 +267,11 @@ type Select struct {
 	Where    BoolExpr
 	GroupBy  []Expr
 	// TODO: Having
+
+	// If the SELECT list has explicit aliases ("AS alias"),
+	// ListAliases will be populated 1:1 with List;
+	// aliases that are present will be non-empty.
+	ListAliases []string
 }
 
 type SelectFrom struct {
@@ -269,8 +315,9 @@ type Expr interface {
 	SQL() string
 }
 
-type Limit interface {
-	isLimit()
+// LiteralOrParam is implemented by integer literal and parameter values.
+type LiteralOrParam interface {
+	isLiteralOrParam()
 	SQL() string
 }
 
@@ -341,6 +388,18 @@ const (
 	NotBetween
 )
 
+type InOp struct {
+	LHS    Expr
+	Neg    bool
+	RHS    []Expr
+	Unnest bool
+
+	// TODO: support subquery form
+}
+
+func (InOp) isBoolExpr() {} // usually
+func (InOp) isExpr()     {}
+
 type IsOp struct {
 	LHS Expr
 	Neg bool
@@ -384,9 +443,9 @@ func (ID) isExpr()     {}
 // Param represents a query parameter.
 type Param string
 
-func (Param) isBoolExpr() {} // possibly bool
-func (Param) isExpr()     {}
-func (Param) isLimit()    {}
+func (Param) isBoolExpr()       {} // possibly bool
+func (Param) isExpr()           {}
+func (Param) isLiteralOrParam() {}
 
 type BoolLiteral bool
 
@@ -410,8 +469,8 @@ func (NullLiteral) isExpr()   {}
 // https://cloud.google.com/spanner/docs/lexical#integer-literals
 type IntegerLiteral int64
 
-func (IntegerLiteral) isLimit() {}
-func (IntegerLiteral) isExpr()  {}
+func (IntegerLiteral) isLiteralOrParam() {}
+func (IntegerLiteral) isExpr()           {}
 
 // FloatLiteral represents a floating point literal.
 // https://cloud.google.com/spanner/docs/lexical#floating-point-literals
