@@ -430,7 +430,9 @@ func GetFakeDeviceObject(bdName string, bdCapacity uint64) *openebsv1alpha1.Bloc
 	}
 
 	ObjectMeta := metav1.ObjectMeta{
-		Labels:    make(map[string]string),
+		Labels: map[string]string{
+			kubernetes.KubernetesHostNameLabel: fakeHostName,
+		},
 		Name:      bdName,
 		Namespace: namespace,
 	}
@@ -455,7 +457,6 @@ func GetFakeDeviceObject(bdName string, bdCapacity uint64) *openebsv1alpha1.Bloc
 func CreateFakeClient() (client.Client, *runtime.Scheme) {
 
 	deviceR := GetFakeDeviceObject(deviceName, capacity)
-	deviceR.Labels[ndm.KubernetesHostNameLabel] = fakeHostName
 
 	deviceList := &openebsv1alpha1.BlockDeviceList{
 		TypeMeta: metav1.TypeMeta{
