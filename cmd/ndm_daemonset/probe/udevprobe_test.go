@@ -196,7 +196,7 @@ func TestUdevProbe(t *testing.T) {
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
-			compareDisk(t, test.expectedDisk, test.actualDisk)
+			compareBlockDevice(t, test.expectedDisk, test.actualDisk)
 			assert.Equal(t, test.expectedError, test.actualError)
 		})
 	}

@@ -40,7 +40,7 @@ func Test_convert_BlockDeviceAPI_To_BlockDevice(t *testing.T) {
 
 	// building the blockdevice API object
 	in1 := createFakeBlockDeviceAPI(fakeBDName)
-	in1.Labels[HostNameLabel] = fakeHostName
+	in1.Labels[KubernetesHostNameLabel] = fakeHostName
 	in1.Spec.NodeAttributes.NodeName = fakeNodeName
 	in1.Spec.Path = fakeDevicePath
 	in1.Spec.FileSystem.Type = fileSystem
