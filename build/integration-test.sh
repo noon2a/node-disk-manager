@@ -15,4 +15,4 @@ if [ "$ARCH" != "amd64" ]; then
   exit 0
 fi
 
-go test -v -timeout 20m github.com/openebs/node-disk-manager/integration_tests/sanity
+go test -mod=vendor -v -timeout 20m github.com/openebs/node-disk-manager/integration_tests/sanity
