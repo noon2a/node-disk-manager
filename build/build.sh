@@ -62,7 +62,7 @@ build(){
                 output_name+='.exe'
             fi
             echo "Building for: ${GOOS} ${GOARCH}"
-            gox -cgo -os="$GOOS" -arch="$GOARCH" -mod=vendor -ldflags \
+            gox -cgo -os="$GOOS" -arch="$GOARCH" -ldflags \
                "-X github.com/openebs/node-disk-manager/pkg/version.GitCommit=${GIT_COMMIT} \
                 -X main.CtlName='${CTLNAME}' \
                 -X github.com/openebs/node-disk-manager/pkg/version.Version=${VERSION}" \

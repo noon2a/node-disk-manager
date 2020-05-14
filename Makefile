@@ -154,7 +154,7 @@ header:
 # -composite: avoid "literal copies lock value from fakePtr"
 .PHONY: vet
 vet:
-	go list ./... | grep -v "./vendor/*" | xargs go vet -composites -mod=vendor
+	go list ./... | grep -v "./vendor/*" | xargs go vet -composites
 
 .PHONY: fmt
 fmt:
