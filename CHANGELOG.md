@@ -1,3 +1,13 @@
+v0.5.0-RC1 / 2020-05-15
+========================
+* add finalizer on claimed BlockDevice resource to prevent accidental deletion ([#416_akhilerm](https://github.com/akhilerm/node-disk-manager/pull/416_akhilerm),[@](https://github.com/))
+* add support for partitions and enable the new UUID algorithm for blockdevice UUID generation ([#386_akhilerm](https://github.com/akhilerm/node-disk-manager/pull/386_akhilerm),[@](https://github.com/))
+* add new filter to validate BlockDevices and remove invalid entries ([#410_akhilerm](https://github.com/akhilerm/node-disk-manager/pull/410_akhilerm),[@](https://github.com/))
+* add OpenEBS to the list of default excluded vendors ([#409_akhilerm](https://github.com/akhilerm/node-disk-manager/pull/409_akhilerm),[@](https://github.com/))
+* remove controller for cluster scoped disk resource ([#412_akhilerm](https://github.com/akhilerm/node-disk-manager/pull/412_akhilerm),[@](https://github.com/))
+
+
+
 v0.4.9 / 2020-04-15
 ========================
 
