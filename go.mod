@@ -5,8 +5,7 @@ go 1.14
 require (
 	github.com/diskfs/go-diskfs v1.1.1
 	github.com/ghodss/yaml v1.0.1-0.20190212211648-25d852aebe32
-	github.com/go-logr/logr v0.1.0
-	github.com/hashicorp/go-version v1.2.0 // indirect
+	github.com/hashicorp/go-version v1.2.1 // indirect
 	github.com/mitchellh/gox v1.0.1 // indirect
 	github.com/onsi/ginkgo v1.12.3
 	github.com/onsi/gomega v1.10.1
