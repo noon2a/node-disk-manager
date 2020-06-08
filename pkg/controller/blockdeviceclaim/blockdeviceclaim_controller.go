@@ -343,7 +343,7 @@ func (r *ReconcileBlockDeviceClaim) getListofDevices(selector *v1.LabelSelector)
 	}
 
 	//Fetch deviceList with matching criteria
-	err := r.client.List(context.TODO(), opts, listBlockDevice)
+	err := r.client.List(context.TODO(), listBlockDevice, opts)
 	if err != nil {
 		return nil, err
 	}
