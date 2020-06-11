@@ -2,8 +2,6 @@ name: release
 
 on:
   create:
-    branches:
-      - master
     tags:
       - 'v*'
 
@@ -11,11 +9,13 @@ jobs:
   ndm-daemonset:
     runs-on: ubuntu-latest
     env:
-      TAG: $(git describe --abbrev=0)
       IMAGE_ORG: 'raspbernetes'
     steps:
       - name: Checkout
         uses: actions/checkout@v1
+
+      - name: Set Tag
+        run: "echo ::set-env name=TAG::${GITHUB_REF#refs/*/v}"
 
       - name: Set up Docker Buildx
         id: buildx
@@ -24,25 +24,26 @@ jobs:
           version: latest
 
       - name: Login to GitHub Docker Registry
-        run: echo "${DOCKERHUB_PASSWORD}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
+        run: echo "${DOCKERHUB_PASSWORD}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
 
       - name: Build & Push Image
-        env:
-          IMAGE_ORG: raspbernetes
         run: |
           make docker.buildx.ndm
+          DIMAGE={IMAGE_ORG}/node-disk-manager TAG_ID=latest make buildx.push
 
   ndm-exporter:
     runs-on: ubuntu-latest
     env:
-      TAG: $(git describe --abbrev=0)
       IMAGE_ORG: 'raspbernetes'
     steps:
       - name: Checkout
         uses: actions/checkout@v1
+
+      - name: Set Tag
+        run: "echo ::set-env name=TAG::${GITHUB_REF#refs/*/v}"
 
       - name: Set up Docker Buildx
         id: buildx
@@ -57,19 +58,20 @@ jobs:
           DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
 
       - name: Build & Push Image
-        env:
-          IMAGE_ORG: raspbernetes
         run: |
           make docker.buildx.exporter
+          DIMAGE={IMAGE_ORG}/node-disk-exporter TAG_ID=latest make buildx.push
 
   ndm-operator:
     runs-on: ubuntu-latest
     env:
-      TAG: $(git describe --abbrev=0)
       IMAGE_ORG: 'raspbernetes'
     steps:
       - name: Checkout
         uses: actions/checkout@v1
+
+      - name: Set Tag
+        run: "echo ::set-env name=TAG::${GITHUB_REF#refs/*/v}"
 
       - name: Set up Docker Buildx
         id: buildx
@@ -84,7 +86,6 @@ jobs:
           DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
 
       - name: Build & Push Image
-        env:
-          IMAGE_ORG: raspbernetes
         run: |
           make docker.buildx.ndo
+          DIMAGE={IMAGE_ORG}/node-disk-operator TAG_ID=latest make buildx.push

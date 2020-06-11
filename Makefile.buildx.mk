@@ -112,3 +112,8 @@ docker.buildx.exporter:
 install-dep-nonsudo:
 	@echo "--> Installing external dependencies for building node-disk-manager"
 	$(PWD)/build/install-dep.sh
+
+# Both DIMAGE and TAG_ID should be provided while calling push
+.PHONY: buildx.push
+buildx.push:
+	@docker buildx imagetools create ${DIMAGE}:${TAG} -t ${DIMAGE}:{TAG_ID}

@@ -22,11 +22,22 @@ jobs:
     runs-on: ubuntu-latest
     needs: lint
     env:
-      TAG: ${{ github.sha }}
       IMAGE_ORG: 'raspbernetes'
     steps:
       - name: Checkout
         uses: actions/checkout@v2
+
+      - name: Set tag
+        run: |
+          BRANCH="${GITHUB_REF##*/}"
+          BUILD_ID=$(git describe --tags --always)
+          BUILD_TAG="${BRANCH}-${BUILD_ID}"
+          CI_TAG=${BRANCH}-ci
+          if [ ${BRANCH} = "master" ]; then
+            CI_TAG="ci"
+          fi
+          echo "::set-env name=TAG::${CI_TAG}"
+          echo "::set-env name=TAG_ID::${BUILD_TAG}"
 
       - name: Set up Docker Buildx
         id: buildx
@@ -41,20 +52,30 @@ jobs:
           DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
 
       - name: Build & Push Image
-        env:
-          IMAGE_ORG: raspbernetes
         run: |
           make docker.buildx.ndm
+          DIMAGE=${IMAGE_ORG}/node-disk-manager TAG_ID=${TAG_ID} make buildx.push
 
   ndm-exporter:
     runs-on: ubuntu-latest
     needs: lint
     env:
-      TAG: ${{ github.sha }}
       IMAGE_ORG: 'raspbernetes'
     steps:
       - name: Checkout
         uses: actions/checkout@v2
+
+      - name: Set tag
+        run: |
+          BRANCH="${GITHUB_REF##*/}"
+          BUILD_ID=$(git describe --tags --always)
+          BUILD_TAG="${BRANCH}-${BUILD_ID}"
+          CI_TAG=${BRANCH}-ci
+          if [ ${BRANCH} = "master" ]; then
+            CI_TAG="ci"
+          fi
+          echo "::set-env name=TAG::${CI_TAG}"
+          echo "::set-env name=TAG_ID::${BUILD_TAG}"
 
       - name: Set up Docker Buildx
         id: buildx
@@ -69,10 +90,9 @@ jobs:
           DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
 
       - name: Build & Push Image
-        env:
-          IMAGE_ORG: raspbernetes
         run: |
           make docker.buildx.exporter
+          DIMAGE=${IMAGE_ORG}/node-disk-exporter TAG_ID=${TAG_ID} make buildx.push
 
   ndm-operator:
     runs-on: ubuntu-latest
@@ -84,6 +104,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
+      - name: Set tag
+        run: |
+          BRANCH="${GITHUB_REF##*/}"
+          BUILD_ID=$(git describe --tags --always)
+          BUILD_TAG="${BRANCH}-${BUILD_ID}"
+          CI_TAG=${BRANCH}-ci
+          if [ ${BRANCH} = "master" ]; then
+            CI_TAG="ci"
+          fi
+          echo "::set-env name=TAG::${CI_TAG}"
+          echo "::set-env name=TAG_ID::${BUILD_TAG}"
+
       - name: Set up Docker Buildx
         id: buildx
         uses: crazy-max/ghaction-docker-buildx@v1
@@ -97,7 +129,6 @@ jobs:
           DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
 
       - name: Build & Push Image
-        env:
-          IMAGE_ORG: raspbernetes
         run: |
           make docker.buildx.ndo
+          DIMAGE=${IMAGE_ORG}/node-disk-operator TAG_ID=${TAG_ID} make buildx.push
