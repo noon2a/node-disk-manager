@@ -23,7 +23,7 @@ jobs:
     needs: lint
     env:
       TAG: ${{ github.sha }}
-      IMAGE_ORG: 'raspbernetes'
+      IMAGE_ORG: 'akhilerm'
     steps:
       - name: Checkout
         uses: actions/checkout@v2
@@ -42,7 +42,7 @@ jobs:
 
       - name: Build & Push Image
         env:
-          IMAGE_ORG: raspbernetes
+          IMAGE_ORG: akhilerm
         run: |
           make docker.buildx.ndm
 
@@ -51,7 +51,7 @@ jobs:
     needs: lint
     env:
       TAG: ${{ github.sha }}
-      IMAGE_ORG: 'raspbernetes'
+      IMAGE_ORG: 'akhilerm'
     steps:
       - name: Checkout
         uses: actions/checkout@v2
@@ -70,7 +70,7 @@ jobs:
 
       - name: Build & Push Image
         env:
-          IMAGE_ORG: raspbernetes
+          IMAGE_ORG: akhilerm
         run: |
           make docker.buildx.exporter
 
@@ -79,7 +79,7 @@ jobs:
     needs: lint
     env:
       TAG: ${{ github.sha }}
-      IMAGE_ORG: 'raspbernetes'
+      IMAGE_ORG: 'akhilerm'
     steps:
       - name: Checkout
         uses: actions/checkout@v2
@@ -98,6 +98,6 @@ jobs:
 
       - name: Build & Push Image
         env:
-          IMAGE_ORG: raspbernetes
+          IMAGE_ORG: akhilerm
         run: |
           make docker.buildx.ndo
