@@ -18,7 +18,7 @@
 export DBUILD_ARGS=--build-arg DBUILD_DATE=${DBUILD_DATE} --build-arg DBUILD_REPO_URL=${DBUILD_REPO_URL} --build-arg DBUILD_SITE_URL=${DBUILD_SITE_URL}
 
 ifeq (${TAG}, )
-  export TAG="ci"
+  export TAG=ci
 endif
 
 # Initialize the NDM DaemonSet variables
@@ -112,3 +112,15 @@ docker.buildx.exporter:
 install-dep-nonsudo:
 	@echo "--> Installing external dependencies for building node-disk-manager"
 	$(PWD)/build/install-dep.sh
+
+.PHONY: buildx.push.ndm
+buildx.push.ndm:
+	BUILDX=true DIMAGE=${IMAGE_ORG}/node-disk-manager ./build/push
+
+.PHONY: buildx.push.exporter
+buildx.push.exporter:
+	BUILDX=true DIMAGE=${IMAGE_ORG}/node-disk-exporter ./build/push
+
+.PHONY: buildx.push.ndo
+buildx.push.ndo:
+	BUILDX=true DIMAGE=${IMAGE_ORG}/node-disk-operator ./build/push
