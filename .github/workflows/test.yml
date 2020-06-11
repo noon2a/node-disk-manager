@@ -14,3 +14,19 @@ jobs:
 
       - name: Verify Unit Tests
         run: sudo -E env "PATH=$PATH" make test
+
+  integration-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Test Infra
+        run: make install-test-infra
+
+      - name: Start Minikube
+        run: |
+          sudo minikube start --vm-driver=none;
+          sudo minikube update-context;
+          sudo chown -R $USER $HOME/.minikube;
+          sudo chown -R $USER $HOME/.kube;
+
+      - name: Run Integration Test
+        run: make integration-test
