@@ -1,8 +1,22 @@
 name: test
 
-on: ['push', 'pull_request']
+on:
+  create:
+    branches:
+      - master
+    tags:
+      - 'v*'
+
 
 jobs:
+  release-test:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${GITHUB_REF#refs/*/v}
+    steps:
+      - name: get tag
+        run: echo $TAG
+
   unit-test:
     runs-on: ubuntu-latest
     steps:
