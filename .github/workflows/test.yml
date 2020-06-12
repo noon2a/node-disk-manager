@@ -15,7 +15,7 @@ jobs:
       TAG: ${GITHUB_REF#refs/*/v}
     steps:
       - name: get tag
-        run: echo $TAG
+        run: echo "Tag:"$TAG " end tag"
 
   unit-test:
     runs-on: ubuntu-latest
