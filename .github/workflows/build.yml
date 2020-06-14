@@ -1,0 +1,21 @@
+name: build
+
+on: ['push']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: set tag
+        run: |
+          BRANCH="${GITHUB_REF##*/}"
+          BUILD_ID=$(git describe --tags --always)
+          BUILD_TAG=${BRANCH}_${BUILD_ID}
+          CI_TAG=${BRANCH}-ci
+          if [ ${BRANCH} = "master" ]; then
+            CI_TAG="ci"
+          fi
+          "echo ::set-env name=TAG::${CI_TAG}"
+
+      - name: get tag
+        run: echo "Tag:"$TAG " end tag"
