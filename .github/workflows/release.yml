@@ -1,0 +1,15 @@
+name: release
+
+on:
+  create:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${GITHUB_REF#refs/*/v}
+    steps:
+      - name: get tag
+        run: echo "Tag:"$TAG " end tag"
