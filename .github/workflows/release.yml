@@ -16,8 +16,8 @@ jobs:
 
       - name: Set Tag
         run: |
-          "echo ::set-env name=TAG::${GITHUB_REF#refs/*/v}"
-          "echo ::set-env name=RELEASE_TAG::${TAG}"
+          echo "::set-env name=TAG::${GITHUB_REF#refs/*/v}"
+          echo "::set-env name=RELEASE_TAG::${TAG}"
 
       - name: Set up Docker Buildx
         id: buildx
@@ -46,8 +46,8 @@ jobs:
 
       - name: Set Tag
         run: |
-          "echo ::set-env name=TAG::${GITHUB_REF#refs/*/v}"
-          "echo ::set-env name=RELEASE_TAG::${TAG}"
+          echo "::set-env name=TAG::${GITHUB_REF#refs/*/v}"
+          echo "::set-env name=RELEASE_TAG::${TAG}"
 
 
       - name: Set up Docker Buildx
@@ -77,8 +77,8 @@ jobs:
 
       - name: Set Tag
         run: |
-          "echo ::set-env name=TAG::${GITHUB_REF#refs/*/v}"
-          "echo ::set-env name=RELEASE_TAG::${TAG}"
+          echo "::set-env name=TAG::${GITHUB_REF#refs/*/v}"
+          echo "::set-env name=RELEASE_TAG::${TAG}"
 
 
       - name: Set up Docker Buildx
