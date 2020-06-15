@@ -9,13 +9,15 @@ jobs:
   ndm-daemonset:
     runs-on: ubuntu-latest
     env:
-      IMAGE_ORG: 'raspbernetes'
+      IMAGE_ORG: 'akhilerm'
     steps:
       - name: Checkout
         uses: actions/checkout@v1
 
       - name: Set Tag
-        run: "echo ::set-env name=TAG::${GITHUB_REF#refs/*/v}"
+        run: |
+          "echo ::set-env name=TAG::${GITHUB_REF#refs/*/v}"
+          "echo ::set-env name=RELEASE_TAG::${TAG}"
 
       - name: Set up Docker Buildx
         id: buildx
@@ -32,18 +34,21 @@ jobs:
       - name: Build & Push Image
         run: |
           make docker.buildx.ndm
-          DIMAGE={IMAGE_ORG}/node-disk-manager TAG_ID=latest make buildx.push
+          make buildx.push.ndm
 
   ndm-exporter:
     runs-on: ubuntu-latest
     env:
-      IMAGE_ORG: 'raspbernetes'
+      IMAGE_ORG: 'akhilerm'
     steps:
       - name: Checkout
         uses: actions/checkout@v1
 
       - name: Set Tag
-        run: "echo ::set-env name=TAG::${GITHUB_REF#refs/*/v}"
+        run: |
+          "echo ::set-env name=TAG::${GITHUB_REF#refs/*/v}"
+          "echo ::set-env name=RELEASE_TAG::${TAG}"
+
 
       - name: Set up Docker Buildx
         id: buildx
@@ -60,18 +65,21 @@ jobs:
       - name: Build & Push Image
         run: |
           make docker.buildx.exporter
-          DIMAGE={IMAGE_ORG}/node-disk-exporter TAG_ID=latest make buildx.push
+          make buildx.push.exporter
 
   ndm-operator:
     runs-on: ubuntu-latest
     env:
-      IMAGE_ORG: 'raspbernetes'
+      IMAGE_ORG: 'akhilerm'
     steps:
       - name: Checkout
         uses: actions/checkout@v1
 
       - name: Set Tag
-        run: "echo ::set-env name=TAG::${GITHUB_REF#refs/*/v}"
+        run: |
+          "echo ::set-env name=TAG::${GITHUB_REF#refs/*/v}"
+          "echo ::set-env name=RELEASE_TAG::${TAG}"
+
 
       - name: Set up Docker Buildx
         id: buildx
@@ -88,4 +96,4 @@ jobs:
       - name: Build & Push Image
         run: |
           make docker.buildx.ndo
-          DIMAGE={IMAGE_ORG}/node-disk-operator TAG_ID=latest make buildx.push
+          make buildx.push.ndo

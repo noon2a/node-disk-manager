@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: lint
     env:
-      IMAGE_ORG: 'raspbernetes'
+      IMAGE_ORG: 'akhilerm'
     steps:
       - name: Checkout
         uses: actions/checkout@v2
@@ -30,14 +30,12 @@ jobs:
       - name: Set tag
         run: |
           BRANCH="${GITHUB_REF##*/}"
-          BUILD_ID=$(git describe --tags --always)
-          BUILD_TAG="${BRANCH}-${BUILD_ID}"
           CI_TAG=${BRANCH}-ci
           if [ ${BRANCH} = "master" ]; then
             CI_TAG="ci"
           fi
           echo "::set-env name=TAG::${CI_TAG}"
-          echo "::set-env name=TAG_ID::${BUILD_TAG}"
+          echo "::set-env name=BRANCH::{BRANCH}"
 
       - name: Set up Docker Buildx
         id: buildx
@@ -54,13 +52,13 @@ jobs:
       - name: Build & Push Image
         run: |
           make docker.buildx.ndm
-          DIMAGE=${IMAGE_ORG}/node-disk-manager TAG_ID=${TAG_ID} make buildx.push
+          make buildx.push.ndm
 
   ndm-exporter:
     runs-on: ubuntu-latest
     needs: lint
     env:
-      IMAGE_ORG: 'raspbernetes'
+      IMAGE_ORG: 'akhilerm'
     steps:
       - name: Checkout
         uses: actions/checkout@v2
@@ -68,14 +66,12 @@ jobs:
       - name: Set tag
         run: |
           BRANCH="${GITHUB_REF##*/}"
-          BUILD_ID=$(git describe --tags --always)
-          BUILD_TAG="${BRANCH}-${BUILD_ID}"
           CI_TAG=${BRANCH}-ci
           if [ ${BRANCH} = "master" ]; then
             CI_TAG="ci"
           fi
           echo "::set-env name=TAG::${CI_TAG}"
-          echo "::set-env name=TAG_ID::${BUILD_TAG}"
+          echo "::set-env name=BRANCH::{BRANCH}"
 
       - name: Set up Docker Buildx
         id: buildx
@@ -92,14 +88,14 @@ jobs:
       - name: Build & Push Image
         run: |
           make docker.buildx.exporter
-          DIMAGE=${IMAGE_ORG}/node-disk-exporter TAG_ID=${TAG_ID} make buildx.push
+          make buildx.push.exporter
 
   ndm-operator:
     runs-on: ubuntu-latest
     needs: lint
     env:
       TAG: ${{ github.sha }}
-      IMAGE_ORG: 'raspbernetes'
+      IMAGE_ORG: 'akhilerm'
     steps:
       - name: Checkout
         uses: actions/checkout@v2
@@ -107,14 +103,12 @@ jobs:
       - name: Set tag
         run: |
           BRANCH="${GITHUB_REF##*/}"
-          BUILD_ID=$(git describe --tags --always)
-          BUILD_TAG="${BRANCH}-${BUILD_ID}"
           CI_TAG=${BRANCH}-ci
           if [ ${BRANCH} = "master" ]; then
             CI_TAG="ci"
           fi
           echo "::set-env name=TAG::${CI_TAG}"
-          echo "::set-env name=TAG_ID::${BUILD_TAG}"
+          echo "::set-env name=BRANCH::{BRANCH}"
 
       - name: Set up Docker Buildx
         id: buildx
@@ -131,4 +125,4 @@ jobs:
       - name: Build & Push Image
         run: |
           make docker.buildx.ndo
-          DIMAGE=${IMAGE_ORG}/node-disk-operator TAG_ID=${TAG_ID} make buildx.push
+          make buildx.push.ndo
