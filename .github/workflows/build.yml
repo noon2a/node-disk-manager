@@ -6,17 +6,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-#      - name: set tag
-#        run: |
-#          BRANCH="${GITHUB_REF##*/}"
-#          CI_TAG=${BRANCH}-ci
-#          if [ ${BRANCH} = "master" ]; then
-#            CI_TAG="ci"
-#          fi
-#          echo "::set-env name=TAG::${CI_TAG}"
-#
-#      - name: get tag
-#        run: echo "Tag:"$TAG " end tag"
       - name: Checkout
         uses: actions/checkout@v2
       - name: Super-Linter
