@@ -35,7 +35,7 @@ jobs:
       - name: Testing
         run: |
           minikube config set vm-driver none
-          minikube start
+          sudo minikube start
           minikube update-context
           kubectl cluster-info
           kubectl get pods -n kube-system
