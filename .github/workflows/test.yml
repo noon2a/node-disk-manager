@@ -34,6 +34,7 @@ jobs:
           k8s-version: 1.15.1
       - name: Testing
         run: |
+          minikube config set vm-driver none
           minikube start
           minikube update-context
           kubectl cluster-info
