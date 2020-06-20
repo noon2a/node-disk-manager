@@ -35,7 +35,8 @@ jobs:
       - name: Testing
         run: |
           minikube config set vm-driver none
-          sudo minikube start
+          minikube config set WantUpdateNotification false
+          sudo -E env PATH="$PATH" minikube start
           minikube update-context
           kubectl cluster-info
           kubectl get pods -n kube-system
