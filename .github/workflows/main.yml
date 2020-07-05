@@ -24,9 +24,6 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v2
-      - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v2
-
       - name: Install Docker
         run: |
           sudo apt-get install \
@@ -50,14 +47,9 @@ jobs:
         run: |
           chmod +x minikube.sh
           ./minikube.sh
-
-      - name: Configure Kubectl
-        run: |
           sudo chown -R $USER $HOME/.kube $HOME/.minikube
-          echo "Get kubectl client and server version"
-          kubectl version
-          echo "Get the node"
-          kubectl get node
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v2
 
       - name: Run integration tests
         run: sudo -E env "PATH=$PATH" make integration-testz
