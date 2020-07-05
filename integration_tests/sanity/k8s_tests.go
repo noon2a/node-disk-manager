@@ -17,7 +17,6 @@ limitations under the License.
 package sanity
 
 import (
-	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/openebs/node-disk-manager/integration_tests/k8s"
 	"strings"
@@ -38,7 +37,7 @@ const (
 	DaemonSetPodPrefix = "node-disk-manager"
 )
 
-var _ = Describe("NDM Setup Tests", func() {
+/*var _ = Describe("NDM Setup Tests", func() {
 
 	var err error
 
@@ -67,7 +66,7 @@ var _ = Describe("NDM Setup Tests", func() {
 			Expect(ok).To(BeTrue())
 		})
 	})
-})
+})*/
 
 // WaitForPodToBeRunningEventually waits for 2 minutes for the given pod to be
 // in running state

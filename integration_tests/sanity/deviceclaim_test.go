@@ -69,7 +69,7 @@ var _ = Describe("BlockDevice Claim tests", func() {
 		ok := WaitForPodToBeDeletedEventually(DaemonSetPodPrefix)
 		Expect(ok).To(BeTrue())
 	})
-	Context("Claim Block Device when matching BD is not available", func() {
+	/*Context("Claim Block Device when matching BD is not available", func() {
 		var bdcName string
 		var blockDeviceClaim *apis.BlockDeviceClaim
 		BeforeEach(func() {
@@ -128,7 +128,7 @@ var _ = Describe("BlockDevice Claim tests", func() {
 				}
 			}
 		})
-	})
+	})*/
 
 	Context("Claim Block Device when matching BD is available", func() {
 		var bdcName string

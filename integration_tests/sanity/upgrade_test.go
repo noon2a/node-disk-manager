@@ -16,14 +16,7 @@ limitations under the License.
 
 package sanity
 
-import (
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
-	"github.com/openebs/node-disk-manager/integration_tests/k8s"
-	apis "github.com/openebs/node-disk-manager/pkg/apis/openebs/v1alpha1"
-)
-
-const (
+/*const (
 	// oldBDCFinalizer is the old string from which BDC should be updated
 	oldBDCFinalizer = "blockdeviceclaim.finalizer"
 	// newBDCFinalizer is the new string to which BDC to be updated
@@ -95,4 +88,4 @@ var _ = Describe("[upgrade] TEST PRE-UPGRADES IN NDM OPERATOR", func() {
 		})
 
 	})
-})
+})*/

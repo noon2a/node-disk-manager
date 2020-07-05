@@ -16,7 +16,7 @@ limitations under the License.
 
 package sanity
 
-import (
+/*import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/openebs/node-disk-manager/integration_tests/k8s"
@@ -163,4 +163,4 @@ var _ = Describe("Device Discovery Tests", func() {
 			Expect(len(bdList.Items)).To(Equal(noOfBlockDeviceCR + 1))
 		})
 	})
-})
+})*/

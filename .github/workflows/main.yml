@@ -24,6 +24,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@v2
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v2
 
       - name: Install Docker
         run: |
@@ -58,7 +60,7 @@ jobs:
           kubectl get node
 
       - name: Run integration tests
-        run: sudo -E env "PATH=$PATH" make integration-test
+        run: sudo -E env "PATH=$PATH" make integration-testz
 
 
 
