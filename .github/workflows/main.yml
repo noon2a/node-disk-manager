@@ -55,7 +55,7 @@ jobs:
 
       - name: Configure Minikube
         run: |
-          chmod +x hack/minikube.sh
+          chmod +x minikube.sh
           ./minikube.sh
 
       - name: Configure Kubectl
