@@ -53,7 +53,9 @@ jobs:
 
       - name: Run integration tests
         run: |
-          rc=$(sudo -E env "PATH=$PATH" make integration-test)
+          sudo -E env "PATH=$PATH" make integration-test
+          kubectl get bd
+          kubectl get bdc
           kubectl get pods | grep node-disk-manager | awk '{print $1}' | xargs kubectl logs
 
 
