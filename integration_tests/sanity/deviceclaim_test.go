@@ -60,7 +60,7 @@ var _ = Describe("BlockDevice Claim tests", func() {
 
 		k8s.WaitForReconciliation()
 	})
-	AfterEach(func() {
+	/*AfterEach(func() {
 		By("deleting the NDM deamonset")
 		err := k8sClient.DeleteNDMDaemonSet()
 		Expect(err).NotTo(HaveOccurred())
@@ -68,7 +68,7 @@ var _ = Describe("BlockDevice Claim tests", func() {
 		By("waiting for the pod to be removed")
 		ok := WaitForPodToBeDeletedEventually(DaemonSetPodPrefix)
 		Expect(ok).To(BeTrue())
-	})
+	})*/
 	/*Context("Claim Block Device when matching BD is not available", func() {
 		var bdcName string
 		var blockDeviceClaim *apis.BlockDeviceClaim
@@ -193,7 +193,7 @@ var _ = Describe("BlockDevice Claim tests", func() {
 
 		})
 	})
-	Context("Unclaiming a block device ", func() {
+	/*Context("Unclaiming a block device ", func() {
 		var bdcName string
 		var blockDeviceClaim *apis.BlockDeviceClaim
 		BeforeEach(func() {
@@ -257,6 +257,6 @@ var _ = Describe("BlockDevice Claim tests", func() {
 			}
 
 		})
-	})
+	})*/
 
 })
