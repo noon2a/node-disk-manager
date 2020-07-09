@@ -23,11 +23,10 @@ import (
 	"github.com/openebs/node-disk-manager/integration_tests/udev"
 	apis "github.com/openebs/node-disk-manager/pkg/apis/openebs/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"os"
 )
 
 const (
-	// HostName is the hostname in which the tests are performed
-	HostName = "minikube"
 	// FakeHostName is a generated fake hostname
 	FakeHostName = "fake-minikube"
 	// FakeBlockDevice is a generated fake block device name
@@ -35,6 +34,8 @@ const (
 )
 
 var (
+	// HostName is the hostname in which the tests are performed
+	HostName, _            = os.Hostname()
 	BDCUnavailableCapacity = resource.MustParse("10Gi")
 	BDCAvailableCapacity   = resource.MustParse("1Gi")
 )
@@ -60,7 +61,7 @@ var _ = Describe("BlockDevice Claim tests", func() {
 
 		k8s.WaitForReconciliation()
 	})
-	/*AfterEach(func() {
+	AfterEach(func() {
 		By("deleting the NDM deamonset")
 		err := k8sClient.DeleteNDMDaemonSet()
 		Expect(err).NotTo(HaveOccurred())
@@ -68,7 +69,7 @@ var _ = Describe("BlockDevice Claim tests", func() {
 		By("waiting for the pod to be removed")
 		ok := WaitForPodToBeDeletedEventually(DaemonSetPodPrefix)
 		Expect(ok).To(BeTrue())
-	})*/
+	})
 	/*Context("Claim Block Device when matching BD is not available", func() {
 		var bdcName string
 		var blockDeviceClaim *apis.BlockDeviceClaim
@@ -148,10 +149,10 @@ var _ = Describe("BlockDevice Claim tests", func() {
 			err = k8sClient.UpdateBlockDeviceClaim(blockDeviceClaim)
 			Expect(err).NotTo(HaveOccurred())
 
-			//// delete the BDC
-			//By("deleting the BDC as part of cleanup")
-			//err = k8sClient.DeleteBlockDeviceClaim(blockDeviceClaim)
-			//Expect(err).NotTo(HaveOccurred())
+			// delete the BDC
+			By("deleting the BDC as part of cleanup")
+			err = k8sClient.DeleteBlockDeviceClaim(blockDeviceClaim)
+			Expect(err).NotTo(HaveOccurred())
 
 		})
 		It("has matching BD on the node", func() {
@@ -169,31 +170,31 @@ var _ = Describe("BlockDevice Claim tests", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(len(bdcList.Items)).NotTo(BeZero())
 
-			//var bdName string
+			var bdName string
 			// check status of BDC
 			By("checking if BDC is bound")
-			/*for _, bdc := range bdcList.Items {
+			for _, bdc := range bdcList.Items {
 				if bdc.Name == bdcName {
 					bdName = bdc.Spec.BlockDeviceName
 					Expect(bdc.Status.Phase).To(Equal(apis.BlockDeviceClaimStatusDone))
 				}
-			}*/
+			}
 
 			// check status of BD that has been bound
 			By("listing all blockdevices")
-			_, err = k8sClient.ListBlockDevices()
+			bdList, err := k8sClient.ListBlockDevices()
 			Expect(err).NotTo(HaveOccurred())
 
 			By("checking if the corresponding BD is claimed")
-			/*for _, bd := range bdList.Items {
+			for _, bd := range bdList.Items {
 				if bd.Name == bdName {
 					Expect(bd.Status.ClaimState).To(Equal(apis.BlockDeviceClaimed))
 				}
-			}*/
+			}
 
 		})
 	})
-	/*Context("Unclaiming a block device ", func() {
+	Context("Unclaiming a block device ", func() {
 		var bdcName string
 		var blockDeviceClaim *apis.BlockDeviceClaim
 		BeforeEach(func() {
@@ -257,6 +258,6 @@ var _ = Describe("BlockDevice Claim tests", func() {
 			}
 
 		})
-	})*/
+	})
 
 })
