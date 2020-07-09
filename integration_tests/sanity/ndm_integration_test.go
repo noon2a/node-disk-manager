@@ -56,7 +56,7 @@ var _ = BeforeSuite(func() {
 })
 
 // clean up all resources by NDM
-var _ = AfterSuite(func() {
+/*var _ = AfterSuite(func() {
 	c, err := k8s.GetClientSet()
 	Expect(err).NotTo(HaveOccurred())
 
@@ -77,4 +77,4 @@ var _ = AfterSuite(func() {
 
 	err = c.DeleteNDMOperatorDeployment()
 	Expect(err).NotTo(HaveOccurred())
-})
+})*/
