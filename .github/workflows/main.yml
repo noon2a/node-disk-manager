@@ -57,7 +57,9 @@ jobs:
           kubectl get bd
           kubectl get bdc
           kubectl get pods
-          "kubectl get pods | grep node-disk-manager | awk '{print $$1}' | xargs -I '{}' kubectl logs '{}'"
+
+      - name: kubetl
+        run: kubectl get pods | grep node-disk-manager | awk '{print $1}' | xargs -I '{}' kubectl logs '{}'
 
 
 
