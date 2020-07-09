@@ -21,7 +21,6 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/openebs/node-disk-manager/integration_tests/k8s"
 	"github.com/openebs/node-disk-manager/integration_tests/udev"
-	apis "github.com/openebs/node-disk-manager/pkg/apis/openebs/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
@@ -130,7 +129,7 @@ var _ = Describe("BlockDevice Claim tests", func() {
 		})
 	})*/
 
-	Context("Claim Block Device when matching BD is available", func() {
+	/*Context("Claim Block Device when matching BD is available", func() {
 		var bdcName string
 		var blockDeviceClaim *apis.BlockDeviceClaim
 		BeforeEach(func() {
@@ -257,6 +256,6 @@ var _ = Describe("BlockDevice Claim tests", func() {
 			}
 
 		})
-	})
+	})*/
 
 })

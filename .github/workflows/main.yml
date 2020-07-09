@@ -48,11 +48,11 @@ jobs:
           chmod +x minikube.sh
           ./minikube.sh
           sudo chown -R $USER $HOME/.kube $HOME/.minikube
-      - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v2
+#      - name: Setup tmate session
+#        uses: mxschmitt/action-tmate@v2
 
       - name: Run integration tests
-        run: sudo -E env "PATH=$PATH" make integration-testz
+        run: sudo -E env "PATH=$PATH" make integration-test
 
 
 
