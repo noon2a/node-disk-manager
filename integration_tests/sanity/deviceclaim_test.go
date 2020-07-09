@@ -148,10 +148,10 @@ var _ = Describe("BlockDevice Claim tests", func() {
 			err = k8sClient.UpdateBlockDeviceClaim(blockDeviceClaim)
 			Expect(err).NotTo(HaveOccurred())
 
-			// delete the BDC
-			By("deleting the BDC as part of cleanup")
-			err = k8sClient.DeleteBlockDeviceClaim(blockDeviceClaim)
-			Expect(err).NotTo(HaveOccurred())
+			//// delete the BDC
+			//By("deleting the BDC as part of cleanup")
+			//err = k8sClient.DeleteBlockDeviceClaim(blockDeviceClaim)
+			//Expect(err).NotTo(HaveOccurred())
 
 		})
 		It("has matching BD on the node", func() {
