@@ -131,7 +131,7 @@ var _ = Describe("BlockDevice Claim tests", func() {
 		})
 	})*/
 
-	Context("Claim Block Device when matching BD is available", func() {
+	/*Context("Claim Block Device when matching BD is available", func() {
 		var bdcName string
 		var blockDeviceClaim *apis.BlockDeviceClaim
 		BeforeEach(func() {
@@ -193,7 +193,7 @@ var _ = Describe("BlockDevice Claim tests", func() {
 			}
 
 		})
-	})
+	})*/
 	Context("Unclaiming a block device ", func() {
 		var bdcName string
 		var blockDeviceClaim *apis.BlockDeviceClaim
