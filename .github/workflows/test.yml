@@ -1,42 +1,42 @@
-name: test
-
-on: ['push']
-
-
-jobs:
-  release-test:
-    runs-on: ubuntu-latest
-    env:
-      TAG: ${GITHUB_REF#refs/*/v}
-    steps:
-      - name: get tag
-        run: echo "Tag:"$TAG " end tag"
-
-  unit-test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v2
-
-      - name: Install dependencies
-        run: make install-dep
-
-      - name: Verify Unit Tests
-        run: sudo -E env "PATH=$PATH" make test
-
-  integration-test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@master
-      - uses: opsgang/ga-setup-minikube@v0.1.1
-        with:
-          minikube-version: 1.4.0
-          k8s-version: 1.15.1
-      - name: Testing
-        run: |
-          minikube config set vm-driver none
-          minikube config set WantUpdateNotification false
-          sudo -E env PATH="$PATH" minikube start
-          minikube update-context
-          kubectl cluster-info
-          kubectl get pods -n kube-system
+#name: test
+#
+#on: ['push']
+#
+#
+#jobs:
+#  release-test:
+#    runs-on: ubuntu-latest
+#    env:
+#      TAG: ${GITHUB_REF#refs/*/v}
+#    steps:
+#      - name: get tag
+#        run: echo "Tag:"$TAG " end tag"
+#
+#  unit-test:
+#    runs-on: ubuntu-latest
+#    steps:
+#      - name: Checkout
+#        uses: actions/checkout@v2
+#
+#      - name: Install dependencies
+#        run: make install-dep
+#
+#      - name: Verify Unit Tests
+#        run: sudo -E env "PATH=$PATH" make test
+#
+#  integration-test:
+#    runs-on: ubuntu-latest
+#    steps:
+#      - uses: actions/checkout@master
+#      - uses: opsgang/ga-setup-minikube@v0.1.1
+#        with:
+#          minikube-version: 1.4.0
+#          k8s-version: 1.15.1
+#      - name: Testing
+#        run: |
+#          minikube config set vm-driver none
+#          minikube config set WantUpdateNotification false
+#          sudo -E env PATH="$PATH" minikube start
+#          minikube update-context
+#          kubectl cluster-info
+#          kubectl get pods -n kube-system
