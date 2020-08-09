@@ -38,10 +38,7 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Install Dependencies
-        run: |
-          sudo sed -i 's/azure\.//' /etc/apt/sources.list
-          sudo apt-get update -y
-          make install-dep
+        run: make install-dep
 
       - name: Unit test
         # Here sudo permissions are required for running tests, since we are making use
