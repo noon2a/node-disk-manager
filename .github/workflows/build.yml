@@ -207,5 +207,8 @@ jobs:
       - name: Test Minikube
         run: kubectl get nodes
 
+      - name: install dep
+        run: make install-dep
+
       - name: integration-tests
         run: sudo -E env "PATH=$PATH" make integration-test
