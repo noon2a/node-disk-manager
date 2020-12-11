@@ -16,8 +16,8 @@ name: build
 
 on:
   push:
-#    paths:
-#      - 'deploy/helm/**'
+    paths:
+      - 'deploy/helm/**'
 #    branches:
 #      - master
 
