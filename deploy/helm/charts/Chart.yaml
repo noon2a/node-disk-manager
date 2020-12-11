@@ -11,6 +11,7 @@ keywords:
   - ndm
   - disk-inventory
   - storage
+  - openebs
 sources:
   - https://github.com/openebs/node-disk-manager
 maintainers:
