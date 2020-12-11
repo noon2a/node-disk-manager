@@ -18,8 +18,8 @@ on:
   push:
     paths:
       - 'deploy/helm/**'
-    branches:
-      - master
+#    branches:
+#      - master
 
 jobs:
   lint:
